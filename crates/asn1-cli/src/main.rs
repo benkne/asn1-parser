@@ -32,14 +32,17 @@ enum Command {
         /// Output root directory. Java files are placed under `<out>/<package-path>/Name.java`.
         #[arg(short, long)]
         out: PathBuf,
-        /// Root Java package (default: `generated.asn1`).
-        #[arg(long, default_value = "generated.asn1")]
-        package: String,
+        /// Root Java package prefix (default: `generated.asn1`).
+        #[arg(long = "java-package-prefix", alias = "package", default_value = "generated.asn1")]
+        java_package_prefix: String,
     },
-    /// Parse + lower, then open the interactive tree-view.
+    /// Parse + lower, then open the interactive tree-view (or export a static HTML tree).
     Visualize {
         /// Files or directories containing `.asn` sources.
         inputs: Vec<PathBuf>,
+        /// Write a standalone HTML tree to the given path instead of launching the window.
+        #[arg(long)]
+        export: Option<PathBuf>,
     },
 }
 
@@ -47,8 +50,10 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Check { inputs } => cmd_check(&inputs),
-        Command::Generate { inputs, out, package } => cmd_generate(&inputs, &out, &package),
-        Command::Visualize { inputs } => cmd_visualize(&inputs),
+        Command::Generate { inputs, out, java_package_prefix } => {
+            cmd_generate(&inputs, &out, &java_package_prefix)
+        }
+        Command::Visualize { inputs, export } => cmd_visualize(&inputs, export.as_deref()),
     }
 }
 
@@ -78,10 +83,23 @@ fn cmd_generate(inputs: &[PathBuf], out: &Path, package: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_visualize(inputs: &[PathBuf]) -> Result<()> {
+fn cmd_visualize(inputs: &[PathBuf], export: Option<&Path>) -> Result<()> {
     let (_, modules) = load_inputs(inputs)?;
     let ir = asn1_ir::lower(&modules);
-    asn1_viz::launch(ir).map_err(|e| anyhow!("visualizer failed: {e}"))
+    if let Some(path) = export {
+        let html = asn1_viz::export_html(&ir);
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
+            }
+        }
+        std::fs::write(path, &html).with_context(|| format!("writing {}", path.display()))?;
+        println!("wrote standalone HTML tree to {}", path.display());
+        Ok(())
+    } else {
+        asn1_viz::launch(ir).map_err(|e| anyhow!("visualizer failed: {e}"))
+    }
 }
 
 fn load_inputs(inputs: &[PathBuf]) -> Result<(SourceMap, Vec<Module>)> {
