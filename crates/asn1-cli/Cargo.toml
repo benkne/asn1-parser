@@ -1,0 +1,20 @@
+[package]
+name = "asn1-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "asn1-decoder command-line driver"
+
+[[bin]]
+name = "asn1-decoder"
+path = "src/main.rs"
+
+[dependencies]
+asn1-parser = { workspace = true }
+asn1-ir = { workspace = true }
+asn1-codegen-java = { workspace = true }
+asn1-viz = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+walkdir = { workspace = true }

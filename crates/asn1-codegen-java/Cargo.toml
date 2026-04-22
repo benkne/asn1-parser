@@ -1,0 +1,14 @@
+[package]
+name = "asn1-codegen-java"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Java 17 source generator for ASN.1 IR"
+
+[dependencies]
+asn1-ir = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+asn1-parser = { workspace = true }

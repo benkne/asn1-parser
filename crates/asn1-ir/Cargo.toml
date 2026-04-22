@@ -1,0 +1,16 @@
+[package]
+name = "asn1-ir"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Lowered, resolved intermediate representation of ASN.1 modules"
+
+[dependencies]
+asn1-parser = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
+
+[features]
+default = ["serde"]
+serde = ["dep:serde", "asn1-parser/serde"]

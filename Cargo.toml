@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/asn1-parser",
+    "crates/asn1-ir",
+    "crates/asn1-codegen-java",
+    "crates/asn1-viz",
+    "crates/asn1-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+license = "MIT"
+repository = "https://github.com/bkneissl/asn1-decoder"
+authors = ["asn1-decoder contributors"]
+
+[workspace.dependencies]
+asn1-parser = { path = "crates/asn1-parser", version = "0.1.0" }
+asn1-ir = { path = "crates/asn1-ir", version = "0.1.0" }
+asn1-codegen-java = { path = "crates/asn1-codegen-java", version = "0.1.0" }
+asn1-viz = { path = "crates/asn1-viz", version = "0.1.0" }
+
+anyhow = "1"
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+eframe = { version = "0.27", default-features = false, features = ["default_fonts", "glow"] }
+egui = "0.27"
+tempfile = "3"
+walkdir = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

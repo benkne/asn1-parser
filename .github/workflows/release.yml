@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p asn1-cli --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          name="asn1-decoder-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$name"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            cp "target/${{ matrix.target }}/release/asn1-decoder.exe" "$name/"
+            7z a "$name.zip" "$name"
+            echo "ARTIFACT=$name.zip" >> "$GITHUB_ENV"
+          else
+            cp "target/${{ matrix.target }}/release/asn1-decoder" "$name/"
+            tar -czf "$name.tar.gz" "$name"
+            echo "ARTIFACT=$name.tar.gz" >> "$GITHUB_ENV"
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARTIFACT }}

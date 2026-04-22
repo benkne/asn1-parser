@@ -1,0 +1,12 @@
+[package]
+name = "asn1-viz"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "egui-based visualizer for the ASN.1 IR"
+
+[dependencies]
+asn1-ir = { workspace = true }
+eframe = { workspace = true }
+egui = { workspace = true }

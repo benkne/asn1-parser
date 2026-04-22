@@ -1,0 +1,15 @@
+[package]
+name = "asn1-parser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Lexer, grammar, and concrete syntax tree for ASN.1 modules"
+
+[dependencies]
+thiserror.workspace = true
+serde = { workspace = true, optional = true }
+
+[features]
+default = ["serde"]
+serde = ["dep:serde"]
