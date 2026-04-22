@@ -625,20 +625,14 @@ mod tests {
                     IrStructMember::Field(IrField {
                         doc: None,
                         name: "x".into(),
-                        ty: IrType::Integer {
-                            named_numbers: vec![],
-                            constraints: vec![],
-                        },
+                        ty: IrType::Integer { named_numbers: vec![], constraints: vec![] },
                         optionality: IrOptionality::Required,
                         is_extension: false,
                     }),
                     IrStructMember::Field(IrField {
                         doc: None,
                         name: "y".into(),
-                        ty: IrType::Integer {
-                            named_numbers: vec![],
-                            constraints: vec![],
-                        },
+                        ty: IrType::Integer { named_numbers: vec![], constraints: vec![] },
                         optionality: IrOptionality::Optional,
                         is_extension: false,
                     }),
