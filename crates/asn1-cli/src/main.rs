@@ -109,7 +109,11 @@ fn load_inputs(inputs: &[PathBuf]) -> Result<(SourceMap, Vec<Module>)> {
     let mut paths = Vec::new();
     for input in inputs {
         if input.is_dir() {
-            for entry in walkdir::WalkDir::new(input).into_iter().filter_map(|e| e.ok()) {
+            for entry in walkdir::WalkDir::new(input)
+                .into_iter()
+                .filter_entry(|e| e.file_name() != "reference")
+                .filter_map(|e| e.ok())
+            {
                 let p = entry.path();
                 if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("asn") {
                     paths.push(p.to_path_buf());

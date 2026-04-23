@@ -289,12 +289,21 @@ impl Parser {
             return Ok(Vec::new());
         }
         let mut groups = Vec::new();
-        while !matches!(self.peek().kind, TokKind::Semi) {
+        loop {
+            self.consume_doc_comments();
+            let _ = self.take_doc();
+            if matches!(self.peek().kind, TokKind::Semi) {
+                break;
+            }
             let start = self.peek().span;
             let mut symbols = Vec::new();
             loop {
+                self.consume_doc_comments();
+                let _ = self.take_doc();
                 let sym = self.expect_any_ident()?;
                 symbols.push(sym);
+                self.consume_doc_comments();
+                let _ = self.take_doc();
                 if matches!(self.peek().kind, TokKind::Comma) {
                     self.bump();
                     continue;
@@ -331,6 +340,8 @@ impl Parser {
                 span: start.join(end),
             });
         }
+        self.consume_doc_comments();
+        let _ = self.take_doc();
         self.expect_kind(&TokKind::Semi, "`;`")?;
         Ok(groups)
     }
@@ -344,6 +355,9 @@ impl Parser {
         let doc = self.take_doc();
         let start = self.peek().span;
         let name = self.expect_any_ident()?;
+        if matches!(self.peek().kind, TokKind::LBrace) {
+            self.skip_balanced_braces();
+        }
         if matches!(self.peek().kind, TokKind::Assign) {
             self.bump();
             if self.peek_ident_is("CLASS") {
@@ -370,7 +384,7 @@ impl Parser {
         self.expect_kind(&TokKind::Assign, "`::=`")?;
 
         if matches!(self.peek().kind, TokKind::LBrace)
-            && matches!(self.peek_at(1).kind, TokKind::LBrace)
+            && matches!(self.peek_at(1).kind, TokKind::LBrace | TokKind::Ellipsis)
         {
             let set = self.parse_object_set_body()?;
             let end = self.prev_span();
@@ -924,6 +938,11 @@ impl Parser {
 
     fn parse_reference_or_class_field(&mut self) -> Result<TypeKind, ParseError> {
         let name = self.expect_any_ident()?;
+        if matches!(self.peek().kind, TokKind::LBrace)
+            && matches!(self.peek_at(1).kind, TokKind::LBrace)
+        {
+            self.skip_balanced_braces();
+        }
         if !matches!(self.peek().kind, TokKind::Dot) {
             return Ok(TypeKind::Reference(name));
         }
