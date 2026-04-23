@@ -763,8 +763,7 @@ fn html_type_body(
                 out.push_str("<div class=\"leaf note\">…</div>\n");
             }
         }
-        IrType::SequenceOf { element, constraints }
-        | IrType::SetOf { element, constraints } => {
+        IrType::SequenceOf { element, constraints } | IrType::SetOf { element, constraints } => {
             html_constraints(out, constraints);
             if html_expandable(program, module, element, visited) {
                 out.push_str("<details><summary><span class=\"kw\">[element]</span> ");
@@ -1277,10 +1276,7 @@ mod tests {
         let after_outer = &html[outer_idx..];
         let outer_end = after_outer.find("</details>").expect("Outer block unclosed");
         let outer_block = &after_outer[..outer_end];
-        assert!(
-            outer_block.contains("inner"),
-            "Outer block should list the inner field"
-        );
+        assert!(outer_block.contains("inner"), "Outer block should list the inner field");
         assert!(
             outer_block.contains("→ "),
             "Outer block should show `→ Module.Name` pointer for the inlined reference"
