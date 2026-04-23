@@ -7,5 +7,5 @@ Cargo.lock.bak
 *.swo
 .DS_Store
 Thumbs.db
-/examples
 .claude/
+*.html
