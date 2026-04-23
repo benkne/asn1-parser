@@ -1,0 +1,3 @@
+[submodule "examples/ts103301"]
+	path = examples/ts103301
+	url = https://forge.etsi.org/rep/ITS/asn1/is_ts103301.git
