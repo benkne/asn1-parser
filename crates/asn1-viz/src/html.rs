@@ -34,6 +34,7 @@ pub fn export_html(program: &IrProgram) -> String {
         program.modules.len(),
         type_total,
     ));
+    html_diagnostics(&mut out, program);
     out.push_str(
         "<input type=\"search\" placeholder=\"Use browser find (Ctrl+F) to locate a type…\" aria-label=\"Type names are plain text; use the browser's find\">\n",
     );
@@ -103,6 +104,10 @@ input[type=search] { width: 100%; padding: .4rem; box-sizing: border-box; margin
 .unresolved { color: var(--unresolved); font-style: italic; }
 .constraint { color: var(--muted); padding: .1rem 0 .1rem 1.25rem; }
 .named { padding: .1rem 0 .1rem 1.25rem; }
+.warnings { margin: 0 0 1rem 0; border: 1px solid var(--ext); border-radius: 4px; padding: .25rem .5rem; background: var(--panel); }
+.warnings > summary { color: var(--ext); font-weight: 600; }
+.warnings .intro { color: var(--muted); font-style: italic; margin: .25rem 0 .4rem 1.5rem; }
+.warnings .item { color: var(--ext); margin: .1rem 0 .1rem 1.5rem; }
 </style>
 </head>
 <body>
@@ -138,6 +143,29 @@ const HTML_TAIL: &str = r#"</main>
 </html>
 "#;
 
+/// Render a subtle, collapsible banner summarizing unresolved references —
+/// the HTML counterpart of the egui header's ⚠ chip + diagnostics window.
+/// Nothing is emitted when the program has no diagnostics.
+fn html_diagnostics(out: &mut String, program: &IrProgram) {
+    let diags = program.diagnostics();
+    if diags.is_empty() {
+        return;
+    }
+    let n = diags.len();
+    let plural = if n == 1 { "" } else { "s" };
+    out.push_str(&format!(
+        "<details class=\"warnings\"><summary>⚠ {n} warning{plural} — unresolved types &amp; modules</summary>\n"
+    ));
+    out.push_str(
+        "<div class=\"intro\">These references could not be resolved against the loaded modules. \
+         The tree still renders; missing types are shown as <code>(unresolved…)</code>.</div>\n",
+    );
+    for d in &diags {
+        out.push_str(&format!("<div class=\"item\">⚠ {}</div>\n", html_escape(&d.to_string())));
+    }
+    out.push_str("</details>\n");
+}
+
 fn html_module(out: &mut String, program: &IrProgram, m: &IrModule) {
     let types: Vec<&IrTypeDef> = m
         .items
@@ -148,7 +176,7 @@ fn html_module(out: &mut String, program: &IrProgram, m: &IrModule) {
         })
         .collect();
     out.push_str(&format!(
-        "<details class=\"module\" open><summary>{} <span class=\"note\">({} types)</span></summary>\n",
+        "<details class=\"module\"><summary>{} <span class=\"note\">({} types)</span></summary>\n",
         html_escape(&m.name),
         types.len()
     ));
@@ -594,6 +622,46 @@ mod tests {
             "self-referential type should be cut off with a recursive marker"
         );
         assert!(html.contains(r#"class="leaf recursive""#));
+    }
+
+    #[test]
+    fn export_html_omits_diagnostics_banner_when_clean() {
+        let html = export_html(&tiny_program());
+        assert!(
+            !html.contains("class=\"warnings\""),
+            "clean program should not render the warnings banner"
+        );
+    }
+
+    #[test]
+    fn export_html_lists_unresolved_references() {
+        // Module M references an Unknown type that doesn't exist — diagnostics
+        // should surface it in the warnings banner.
+        let outer = IrTypeDef {
+            name: "Outer".into(),
+            doc: None,
+            ty: asn1_ir::IrType::Sequence(asn1_ir::IrStruct {
+                extensible: false,
+                members: vec![asn1_ir::IrStructMember::Field(asn1_ir::IrField {
+                    doc: None,
+                    name: "x".into(),
+                    ty: asn1_ir::IrType::Reference { module: None, name: "Unknown".into() },
+                    optionality: asn1_ir::IrOptionality::Required,
+                    is_extension: false,
+                })],
+            }),
+        };
+        let p = IrProgram {
+            modules: vec![IrModule {
+                name: "M".into(),
+                oid: None,
+                imports: vec![],
+                items: vec![IrItem::Type(outer)],
+            }],
+        };
+        let html = export_html(&p);
+        assert!(html.contains("class=\"warnings\""), "warnings banner should be present");
+        assert!(html.contains("Unknown"), "unresolved type name should appear in the banner");
     }
 
     #[test]

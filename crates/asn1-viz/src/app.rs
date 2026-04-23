@@ -1,13 +1,18 @@
 //! Top-level eframe app: window chrome, menus, picker, and drill-down driver.
 
+use std::path::Path;
+
 use asn1_ir::{render_type, IrDiagnostic, IrItem, IrProgram};
 
+use crate::loader::{load_program, LoadedProgram};
 use crate::theme::Theme;
 use crate::tree::render_body;
 use crate::WARN_COLOR;
 
-/// Launch the visualizer UI. Blocks until the window is closed.
-pub fn launch(program: IrProgram) -> eframe::Result<()> {
+/// Launch the visualizer UI. If `program` is `None`, the window opens empty
+/// and the user can load sources via the File menu. Blocks until the window
+/// is closed.
+pub fn launch(program: Option<IrProgram>) -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 780.0])
@@ -18,7 +23,9 @@ pub fn launch(program: IrProgram) -> eframe::Result<()> {
 }
 
 struct VizApp {
-    program: IrProgram,
+    /// `None` until something has been imported (either by the CLI caller or
+    /// via File → Open).
+    program: Option<IrProgram>,
     filter: String,
     /// Currently-focused root type as `(module, type_name)`.
     root: Option<(String, String)>,
@@ -26,11 +33,18 @@ struct VizApp {
     about_open: bool,
     diagnostics: Vec<IrDiagnostic>,
     diagnostics_open: bool,
+    /// Human-readable label for what is currently loaded (file name or
+    /// folder name). Shown in the header.
+    loaded_label: Option<String>,
+    /// Rendered parse errors from the last load. Non-empty keeps the errors
+    /// window on-screen so the user notices.
+    load_errors: Vec<String>,
+    load_errors_open: bool,
 }
 
 impl VizApp {
-    fn new(program: IrProgram) -> Self {
-        let diagnostics = program.diagnostics();
+    fn new(program: Option<IrProgram>) -> Self {
+        let diagnostics = program.as_ref().map(IrProgram::diagnostics).unwrap_or_default();
         Self {
             program,
             filter: String::new(),
@@ -39,8 +53,58 @@ impl VizApp {
             about_open: false,
             diagnostics,
             diagnostics_open: false,
+            loaded_label: None,
+            load_errors: Vec::new(),
+            load_errors_open: false,
         }
     }
+
+    fn apply_loaded(&mut self, loaded: LoadedProgram, label: String) {
+        self.diagnostics = loaded.program.diagnostics();
+        self.program = Some(loaded.program);
+        self.filter.clear();
+        self.root = None;
+        self.loaded_label = Some(label);
+        self.load_errors = loaded.parse_errors;
+        self.load_errors_open = !self.load_errors.is_empty();
+    }
+
+    fn clear(&mut self) {
+        self.program = None;
+        self.filter.clear();
+        self.root = None;
+        self.diagnostics.clear();
+        self.diagnostics_open = false;
+        self.loaded_label = None;
+        self.load_errors.clear();
+        self.load_errors_open = false;
+    }
+
+    fn import_file(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("ASN.1 source", &["asn"])
+            .set_title("Open ASN.1 file")
+            .pick_file()
+        {
+            let label = label_for(&path);
+            self.apply_loaded(load_program(&[path]), label);
+        }
+    }
+
+    fn import_directory(&mut self) {
+        if let Some(path) =
+            rfd::FileDialog::new().set_title("Open directory of .asn files").pick_folder()
+        {
+            let label = label_for(&path);
+            self.apply_loaded(load_program(&[path]), label);
+        }
+    }
+}
+
+fn label_for(path: &Path) -> String {
+    path.file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
 }
 
 impl eframe::App for VizApp {
@@ -51,6 +115,23 @@ impl eframe::App for VizApp {
             egui::menu::bar(ui, |ui| {
                 ui.heading("asn1-decoder");
                 ui.separator();
+
+                ui.menu_button("File", |ui| {
+                    if ui.button("Open file…").clicked() {
+                        ui.close_menu();
+                        self.import_file();
+                    }
+                    if ui.button("Open directory…").clicked() {
+                        ui.close_menu();
+                        self.import_directory();
+                    }
+                    ui.separator();
+                    let can_close = self.program.is_some();
+                    if ui.add_enabled(can_close, egui::Button::new("Close")).clicked() {
+                        ui.close_menu();
+                        self.clear();
+                    }
+                });
 
                 ui.menu_button("View", |ui| {
                     ui.label("Theme");
@@ -71,7 +152,30 @@ impl eframe::App for VizApp {
                 });
 
                 ui.separator();
-                ui.label(format!("{} module(s)", self.program.modules.len()));
+                match &self.program {
+                    Some(p) => ui.label(format!("{} module(s)", p.modules.len())),
+                    None => ui.label(egui::RichText::new("no sources loaded").weak().italics()),
+                };
+                if let Some(label) = &self.loaded_label {
+                    ui.separator();
+                    ui.label(egui::RichText::new(format!("source: {label}")).weak());
+                }
+                if !self.load_errors.is_empty() {
+                    ui.separator();
+                    let n = self.load_errors.len();
+                    let chip = egui::RichText::new(format!(
+                        "✖ {n} parse error{}",
+                        if n == 1 { "" } else { "s" }
+                    ))
+                    .color(WARN_COLOR);
+                    if ui
+                        .link(chip)
+                        .on_hover_text("click to view files that failed to parse")
+                        .clicked()
+                    {
+                        self.load_errors_open = !self.load_errors_open;
+                    }
+                }
                 if !self.diagnostics.is_empty() {
                     ui.separator();
                     let n = self.diagnostics.len();
@@ -158,6 +262,32 @@ impl eframe::App for VizApp {
             });
         self.diagnostics_open = diag_open;
 
+        let mut errors_open = self.load_errors_open;
+        egui::Window::new("Parse errors")
+            .open(&mut errors_open)
+            .collapsible(false)
+            .resizable(true)
+            .default_width(820.0)
+            .default_height(560.0)
+            .default_pos(egui::pos2(280.0, 160.0))
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(
+                        "These files failed to parse and are not part of the loaded program.",
+                    )
+                    .weak()
+                    .italics(),
+                );
+                ui.separator();
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    for e in &self.load_errors {
+                        ui.label(egui::RichText::new(e).color(WARN_COLOR).monospace());
+                        ui.separator();
+                    }
+                });
+            });
+        self.load_errors_open = errors_open;
+
         egui::SidePanel::left("picker").resizable(true).default_width(360.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("filter:");
@@ -179,11 +309,18 @@ impl eframe::App for VizApp {
 
 impl VizApp {
     fn show_picker(&mut self, ui: &mut egui::Ui) {
+        let Some(program) = &self.program else {
+            ui.label(
+                egui::RichText::new("Use File → Open file… or Open directory… to load sources.")
+                    .weak(),
+            );
+            return;
+        };
+
         let filter = self.filter.to_lowercase();
         // Build (module_name, matching types) groups in source order so each
         // module becomes its own collapsible.
-        let groups: Vec<(String, Vec<String>)> = self
-            .program
+        let groups: Vec<(String, Vec<String>)> = program
             .modules
             .iter()
             .map(|m| {
@@ -230,6 +367,33 @@ impl VizApp {
     }
 
     fn show_drilldown(&mut self, ui: &mut egui::Ui) {
+        if self.program.is_none() {
+            let mut want_file = false;
+            let mut want_dir = false;
+            ui.vertical_centered(|ui| {
+                ui.add_space(60.0);
+                ui.heading("No sources loaded");
+                ui.add_space(8.0);
+                ui.label("Use File → Open file… to load a single .asn file,");
+                ui.label("or File → Open directory… to scan a folder.");
+                ui.add_space(20.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Open file…").clicked() {
+                        want_file = true;
+                    }
+                    if ui.button("Open directory…").clicked() {
+                        want_dir = true;
+                    }
+                });
+            });
+            if want_file {
+                self.import_file();
+            } else if want_dir {
+                self.import_directory();
+            }
+            return;
+        }
+        let program = self.program.as_ref().unwrap();
         let Some((root_mod, root_name)) = self.root.clone() else {
             ui.vertical_centered(|ui| {
                 ui.add_space(40.0);
@@ -237,7 +401,7 @@ impl VizApp {
             });
             return;
         };
-        let Some(root_td) = self.program.find_type(&root_mod, &root_name) else {
+        let Some(root_td) = program.find_type(&root_mod, &root_name) else {
             ui.label(format!("unknown type: {root_mod}:{root_name}"));
             return;
         };
@@ -253,6 +417,7 @@ impl VizApp {
         ui.separator();
 
         let visited = vec![(root_mod.clone(), root_name.clone())];
-        render_body(ui, &self.program, &root_mod, &[], &root_td.ty, &visited);
+        let ty = root_td.ty.clone();
+        render_body(ui, program, &root_mod, &[], &ty, &visited);
     }
 }

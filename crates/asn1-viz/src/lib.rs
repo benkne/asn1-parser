@@ -16,6 +16,7 @@
 
 mod app;
 mod html;
+mod loader;
 mod theme;
 mod tree;
 

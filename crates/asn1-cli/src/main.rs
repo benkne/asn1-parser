@@ -101,10 +101,10 @@ fn cmd_generate(inputs: &[PathBuf], out: &Path, package: &str) -> Result<()> {
 }
 
 fn cmd_visualize(inputs: &[PathBuf], export: Option<&Path>) -> Result<()> {
-    let (_, modules) = load_inputs(inputs)?;
-    let ir = asn1_ir::lower(&modules);
-    report_diagnostics(&ir);
     if let Some(path) = export {
+        let (_, modules) = load_inputs(inputs)?;
+        let ir = asn1_ir::lower(&modules);
+        report_diagnostics(&ir);
         let html = asn1_viz::export_html(&ir);
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
@@ -116,7 +116,15 @@ fn cmd_visualize(inputs: &[PathBuf], export: Option<&Path>) -> Result<()> {
         println!("wrote standalone HTML tree to {}", path.display());
         Ok(())
     } else {
-        asn1_viz::launch(ir).map_err(|e| anyhow!("visualizer failed: {e}"))
+        let program = if inputs.is_empty() {
+            None
+        } else {
+            let (_, modules) = load_inputs(inputs)?;
+            let ir = asn1_ir::lower(&modules);
+            report_diagnostics(&ir);
+            Some(ir)
+        };
+        asn1_viz::launch(program).map_err(|e| anyhow!("visualizer failed: {e}"))
     }
 }
 

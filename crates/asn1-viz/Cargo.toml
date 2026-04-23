@@ -10,5 +10,8 @@ description = "egui-based visualizer for the ASN.1 IR"
 
 [dependencies]
 asn1-ir = { workspace = true }
+asn1-parser = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
+rfd = { workspace = true }
+walkdir = { workspace = true }
