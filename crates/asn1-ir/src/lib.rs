@@ -714,6 +714,126 @@ impl IrProgram {
             })
         })
     }
+
+    /// Collect resolution diagnostics: unresolved type references and imports
+    /// whose source module is not present in the program.
+    pub fn diagnostics(&self) -> Vec<IrDiagnostic> {
+        let mut out = Vec::new();
+        let known_modules: std::collections::HashSet<&str> =
+            self.modules.iter().map(|m| m.name.as_str()).collect();
+
+        for m in &self.modules {
+            for imp in &m.imports {
+                if !known_modules.contains(imp.from_module.as_str()) {
+                    out.push(IrDiagnostic::UnknownImportedModule {
+                        module: m.name.clone(),
+                        from_module: imp.from_module.clone(),
+                        symbols: imp.symbols.clone(),
+                    });
+                }
+            }
+            for item in &m.items {
+                if let IrItem::Type(td) = item {
+                    collect_unresolved_in_type(
+                        &td.ty,
+                        &m.name,
+                        &td.name,
+                        &known_modules,
+                        self,
+                        &mut out,
+                    );
+                }
+            }
+        }
+        out
+    }
+}
+
+/// A resolution-time warning emitted by [`IrProgram::diagnostics`].
+#[derive(Debug, Clone)]
+pub enum IrDiagnostic {
+    /// A type reference could not be resolved to any known module.
+    UnresolvedTypeReference { module: String, item: String, referenced: String },
+    /// A reference names a module, but that module does not define the symbol.
+    UnknownTypeInModule {
+        module: String,
+        item: String,
+        referenced_module: String,
+        referenced: String,
+    },
+    /// An `IMPORTS ... FROM <module>` clause names a module not present in the program.
+    UnknownImportedModule { module: String, from_module: String, symbols: Vec<String> },
+}
+
+impl std::fmt::Display for IrDiagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IrDiagnostic::UnresolvedTypeReference { module, item, referenced } => write!(
+                f,
+                "unresolved type reference `{referenced}` in {module}.{item} \
+                 (not defined locally and not imported)"
+            ),
+            IrDiagnostic::UnknownTypeInModule { module, item, referenced_module, referenced } => {
+                write!(
+                    f,
+                    "reference `{referenced_module}.{referenced}` in {module}.{item} — \
+                 module `{referenced_module}` has no such type"
+                )
+            }
+            IrDiagnostic::UnknownImportedModule { module, from_module, symbols } => {
+                write!(
+                    f,
+                    "module `{module}` imports {:?} from unknown module `{from_module}`",
+                    symbols
+                )
+            }
+        }
+    }
+}
+
+fn collect_unresolved_in_type(
+    ty: &IrType,
+    module: &str,
+    item: &str,
+    known_modules: &std::collections::HashSet<&str>,
+    program: &IrProgram,
+    out: &mut Vec<IrDiagnostic>,
+) {
+    match ty {
+        IrType::Reference { module: Some(m), name } => {
+            if !known_modules.contains(m.as_str()) || program.find_type(m, name).is_none() {
+                out.push(IrDiagnostic::UnknownTypeInModule {
+                    module: module.to_string(),
+                    item: item.to_string(),
+                    referenced_module: m.clone(),
+                    referenced: name.clone(),
+                });
+            }
+        }
+        IrType::Reference { module: None, name } => {
+            out.push(IrDiagnostic::UnresolvedTypeReference {
+                module: module.to_string(),
+                item: item.to_string(),
+                referenced: name.clone(),
+            });
+        }
+        IrType::Sequence(s) | IrType::Set(s) => {
+            for mem in &s.members {
+                if let IrStructMember::Field(f) = mem {
+                    collect_unresolved_in_type(&f.ty, module, item, known_modules, program, out);
+                }
+            }
+        }
+        IrType::SequenceOf { element, .. } | IrType::SetOf { element, .. } => {
+            collect_unresolved_in_type(element, module, item, known_modules, program, out);
+        }
+        IrType::Choice(c) => {
+            for alt in &c.alternatives {
+                collect_unresolved_in_type(&alt.ty, module, item, known_modules, program, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Pretty-render an [`IrType`] into a short human string (used by viz and tests).

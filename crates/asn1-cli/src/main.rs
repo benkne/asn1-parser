@@ -59,14 +59,31 @@ fn main() -> Result<()> {
 
 fn cmd_check(inputs: &[PathBuf]) -> Result<()> {
     let (sources, modules) = load_inputs(inputs)?;
-    let _ = (&sources, &modules);
+    let _ = &sources;
+    let ir = asn1_ir::lower(&modules);
+    report_diagnostics(&ir);
     println!("parsed {} module(s) ok", modules.len());
     Ok(())
+}
+
+fn report_diagnostics(ir: &asn1_ir::IrProgram) {
+    let diags = ir.diagnostics();
+    if diags.is_empty() {
+        return;
+    }
+    for d in &diags {
+        eprintln!("warning: {d}");
+    }
+    eprintln!(
+        "warning: {} unresolved reference(s) — generated output may be incomplete",
+        diags.len()
+    );
 }
 
 fn cmd_generate(inputs: &[PathBuf], out: &Path, package: &str) -> Result<()> {
     let (_, modules) = load_inputs(inputs)?;
     let ir = asn1_ir::lower(&modules);
+    report_diagnostics(&ir);
     let opts =
         asn1_codegen_java::JavaOptions { base_package: package.to_string(), indent: "    ".into() };
     let files = asn1_codegen_java::generate(&ir, &opts);
@@ -86,6 +103,7 @@ fn cmd_generate(inputs: &[PathBuf], out: &Path, package: &str) -> Result<()> {
 fn cmd_visualize(inputs: &[PathBuf], export: Option<&Path>) -> Result<()> {
     let (_, modules) = load_inputs(inputs)?;
     let ir = asn1_ir::lower(&modules);
+    report_diagnostics(&ir);
     if let Some(path) = export {
         let html = asn1_viz::export_html(&ir);
         if let Some(parent) = path.parent() {

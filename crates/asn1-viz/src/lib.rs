@@ -12,9 +12,26 @@
 #![deny(rust_2018_idioms)]
 
 use asn1_ir::{
-    render_type, IrChoice, IrConstraint, IrField, IrItem, IrModule, IrOptionality, IrProgram,
-    IrStruct, IrStructMember, IrType, IrTypeDef,
+    render_type, IrChoice, IrConstraint, IrDiagnostic, IrField, IrItem, IrModule, IrOptionality,
+    IrProgram, IrStruct, IrStructMember, IrType, IrTypeDef,
 };
+
+/// Subtle yellow-orange used for warnings and unresolved-reference labels.
+const WARN_COLOR: egui::Color32 = egui::Color32::from_rgb(0xd2, 0x99, 0x22);
+
+/// Approximate width of a `CollapsingHeader`'s disclosure triangle (▸ + gap),
+/// used to line up leaf labels with their expandable siblings.
+const TRIANGLE_INDENT: f32 = 18.0;
+
+/// Leaf label that aligns with `CollapsingHeader` siblings by padding past the
+/// triangle gutter, colored with [`WARN_COLOR`] so unresolved references stay
+/// visually distinct from resolved ones.
+fn warn_leaf(ui: &mut egui::Ui, text: impl Into<String>) {
+    ui.horizontal(|ui| {
+        ui.add_space(TRIANGLE_INDENT);
+        ui.label(egui::RichText::new(text.into()).color(WARN_COLOR));
+    });
+}
 
 /// Launch the visualizer UI. Blocks until the window is closed.
 pub fn launch(program: IrProgram) -> eframe::Result<()> {
@@ -69,11 +86,22 @@ struct VizApp {
     root: Option<(String, String)>,
     theme: Theme,
     about_open: bool,
+    diagnostics: Vec<IrDiagnostic>,
+    diagnostics_open: bool,
 }
 
 impl VizApp {
     fn new(program: IrProgram) -> Self {
-        Self { program, filter: String::new(), root: None, theme: Theme::Dark, about_open: false }
+        let diagnostics = program.diagnostics();
+        Self {
+            program,
+            filter: String::new(),
+            root: None,
+            theme: Theme::Dark,
+            about_open: false,
+            diagnostics,
+            diagnostics_open: false,
+        }
     }
 }
 
@@ -106,6 +134,22 @@ impl eframe::App for VizApp {
 
                 ui.separator();
                 ui.label(format!("{} module(s)", self.program.modules.len()));
+                if !self.diagnostics.is_empty() {
+                    ui.separator();
+                    let n = self.diagnostics.len();
+                    let chip = egui::RichText::new(format!(
+                        "⚠ {n} warning{}",
+                        if n == 1 { "" } else { "s" }
+                    ))
+                    .color(WARN_COLOR);
+                    if ui
+                        .link(chip)
+                        .on_hover_text("click to view unresolved types/modules")
+                        .clicked()
+                    {
+                        self.diagnostics_open = !self.diagnostics_open;
+                    }
+                }
                 if let Some((m, n)) = self.root.clone() {
                     ui.separator();
                     ui.label(format!("root: {m}:{n}"));
@@ -149,6 +193,32 @@ impl eframe::App for VizApp {
                 });
             });
         self.about_open = about_open;
+
+        let mut diag_open = self.diagnostics_open;
+        egui::Window::new("Unresolved types & modules")
+            .open(&mut diag_open)
+            .collapsible(false)
+            .resizable(true)
+            .default_width(820.0)
+            .default_height(560.0)
+            .default_pos(egui::pos2(240.0, 120.0))
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(
+                        "These references could not be resolved against the loaded modules. \
+                         The tree view still renders; missing types are shown as `(unresolved…)`.",
+                    )
+                    .weak()
+                    .italics(),
+                );
+                ui.separator();
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    for d in &self.diagnostics {
+                        ui.label(egui::RichText::new(format!("⚠ {d}")).color(WARN_COLOR));
+                    }
+                });
+            });
+        self.diagnostics_open = diag_open;
 
         egui::SidePanel::left("picker").resizable(true).default_width(360.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -312,7 +382,7 @@ fn render_body(
                 return;
             }
             let Some(td) = program.find_type(&target_mod, name) else {
-                ui.label(format!("(unresolved reference: {target_mod}.{name})"));
+                warn_leaf(ui, format!("(unresolved reference: {target_mod}.{name})"));
                 return;
             };
             let mut next = visited.to_vec();
@@ -398,7 +468,7 @@ fn render_struct(
                             });
                     }
                     None => {
-                        ui.label(format!("↳ COMPONENTS OF {type_ref}  (unresolved)"));
+                        warn_leaf(ui, format!("↳ COMPONENTS OF {type_ref}  (unresolved)"));
                     }
                 }
             }
@@ -479,7 +549,7 @@ fn render_nested(
             ui.label(format!("{label}  ↺ recursive: {target_mod}.{target_name}"));
         }
         Some(Expansion::Dangling { target_mod, target_name }) => {
-            ui.label(format!("{label}  (unresolved: {target_mod}.{target_name})"));
+            warn_leaf(ui, format!("{label}  (unresolved: {target_mod}.{target_name})"));
         }
         Some(Expansion::Via { target_mod, target_name, target_ty, visited: next }) => {
             let id = node_id(&next, path, label);
@@ -580,11 +650,13 @@ fn node_id(visited: &[(String, String)], path: &[String], label: &str) -> String
 pub fn export_html(program: &IrProgram) -> String {
     let mut out = String::new();
     out.push_str(HTML_HEAD);
-    out.push_str("<header>\n  <h1>asn1-decoder</h1>\n");
+    out.push_str("<header>\n  <h1>asn1-tool</h1>\n");
+    let authors = env!("CARGO_PKG_AUTHORS").replace(':', ", ");
     out.push_str(&format!(
-        "  <span class=\"info\">v{} — by {}</span>\n",
+        "  <span class=\"info\">v{}{}{}</span>\n",
         env!("CARGO_PKG_VERSION"),
-        html_escape(&env!("CARGO_PKG_AUTHORS").replace(':', ", ")),
+        if authors.is_empty() { "" } else { " — by " },
+        html_escape(&authors),
     ));
     out.push_str(HTML_HEADER_CONTROLS);
     let type_total: usize = program.all_types().count();
