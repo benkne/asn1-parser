@@ -800,15 +800,15 @@ fn collect_unresolved_in_type(
     out: &mut Vec<IrDiagnostic>,
 ) {
     match ty {
-        IrType::Reference { module: Some(m), name } => {
-            if !known_modules.contains(m.as_str()) || program.find_type(m, name).is_none() {
-                out.push(IrDiagnostic::UnknownTypeInModule {
-                    module: module.to_string(),
-                    item: item.to_string(),
-                    referenced_module: m.clone(),
-                    referenced: name.clone(),
-                });
-            }
+        IrType::Reference { module: Some(m), name }
+            if !known_modules.contains(m.as_str()) || program.find_type(m, name).is_none() =>
+        {
+            out.push(IrDiagnostic::UnknownTypeInModule {
+                module: module.to_string(),
+                item: item.to_string(),
+                referenced_module: m.clone(),
+                referenced: name.clone(),
+            });
         }
         IrType::Reference { module: None, name } => {
             out.push(IrDiagnostic::UnresolvedTypeReference {
