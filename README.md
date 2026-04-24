@@ -29,6 +29,8 @@ are treated as a single compilation unit so cross-module `IMPORTS` resolve.
 
 ## Visualizer at a glance
 
+![Visualizer](doc/visualizer_general.png)
+
 - **File menu**: open / add files or directories, export HTML, close.
   "Add…" imports an additional source alongside the current set and re-parses,
   so references that were previously unresolved can now resolve.
