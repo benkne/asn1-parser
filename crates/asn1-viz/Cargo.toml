@@ -11,6 +11,8 @@ description = "egui-based visualizer for the ASN.1 IR"
 [dependencies]
 asn1-ir = { workspace = true }
 asn1-parser = { workspace = true }
+asn1-codegen-java = { workspace = true }
+asn1-codegen-cpp = { workspace = true }
 dark-light = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }

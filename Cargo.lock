@@ -224,6 +224,8 @@ dependencies = [
 name = "asn1-viz"
 version = "0.1.0"
 dependencies = [
+ "asn1-codegen-cpp",
+ "asn1-codegen-java",
  "asn1-ir",
  "asn1-parser",
  "dark-light",

@@ -3,6 +3,8 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use asn1_codegen_cpp::{generate as cpp_generate, CppOptions};
+use asn1_codegen_java::{generate as java_generate, JavaOptions};
 use asn1_ir::{render_type, IrDiagnostic, IrItem, IrProgram};
 
 use crate::loader::load_program;
@@ -47,6 +49,9 @@ struct VizApp {
     /// window on-screen so the user notices.
     load_errors: Vec<String>,
     load_errors_open: bool,
+    /// Output lines from the most recent code-generation run (success or errors).
+    codegen_log: Vec<String>,
+    codegen_log_open: bool,
 }
 
 impl VizApp {
@@ -63,6 +68,8 @@ impl VizApp {
             excluded_modules: HashSet::new(),
             load_errors: Vec::new(),
             load_errors_open: false,
+            codegen_log: Vec::new(),
+            codegen_log_open: false,
         };
         if !initial_paths.is_empty() {
             app.replace_with(initial_paths);
@@ -183,6 +190,70 @@ impl VizApp {
             self.load_errors_open = true;
         }
     }
+
+    fn generate_java(&mut self) {
+        let Some(program) = &self.program else { return };
+        let Some(out_dir) = Self::pick_folder("Select output directory for Java sources") else {
+            return;
+        };
+        let files = java_generate(program, &JavaOptions::default());
+        self.codegen_log.clear();
+        let mut errors = Vec::new();
+        for f in &files {
+            let dest = out_dir.join(&f.relative_path);
+            if let Some(parent) = dest.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    errors.push(format!("error creating {}: {e}", parent.display()));
+                    continue;
+                }
+            }
+            if let Err(e) = std::fs::write(&dest, &f.contents) {
+                errors.push(format!("error writing {}: {e}", dest.display()));
+            }
+        }
+        if errors.is_empty() {
+            self.codegen_log.push(format!(
+                "Done — {} Java file(s) written to:\n{}",
+                files.len(),
+                out_dir.display()
+            ));
+        } else {
+            self.codegen_log.extend(errors);
+        }
+        self.codegen_log_open = true;
+    }
+
+    fn generate_cpp(&mut self) {
+        let Some(program) = &self.program else { return };
+        let Some(out_dir) = Self::pick_folder("Select output directory for C++ headers") else {
+            return;
+        };
+        let files = cpp_generate(program, &CppOptions::default());
+        self.codegen_log.clear();
+        let mut errors = Vec::new();
+        for f in &files {
+            let dest = out_dir.join(&f.relative_path);
+            if let Some(parent) = dest.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    errors.push(format!("error creating {}: {e}", parent.display()));
+                    continue;
+                }
+            }
+            if let Err(e) = std::fs::write(&dest, &f.contents) {
+                errors.push(format!("error writing {}: {e}", dest.display()));
+            }
+        }
+        if errors.is_empty() {
+            self.codegen_log.push(format!(
+                "Done — {} C++ file(s) written to:\n{}",
+                files.len(),
+                out_dir.display()
+            ));
+        } else {
+            self.codegen_log.extend(errors);
+        }
+        self.codegen_log_open = true;
+    }
 }
 
 impl eframe::App for VizApp {
@@ -238,6 +309,30 @@ impl eframe::App for VizApp {
                     if ui.add_enabled(has_program, egui::Button::new("Close")).clicked() {
                         ui.close_menu();
                         self.clear();
+                    }
+                });
+
+                ui.menu_button("Tools", |ui| {
+                    let has_program = self.program.is_some();
+                    if ui
+                        .add_enabled(has_program, egui::Button::new("Generate Java…"))
+                        .on_hover_text(
+                            "Generate Java 17 source files from the loaded ASN.1 modules",
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.generate_java();
+                    }
+                    if ui
+                        .add_enabled(has_program, egui::Button::new("Generate C++…"))
+                        .on_hover_text(
+                            "Generate C++ header files from the loaded ASN.1 modules",
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.generate_cpp();
                     }
                 });
 
@@ -391,6 +486,23 @@ impl eframe::App for VizApp {
                 });
             });
         self.load_errors_open = errors_open;
+
+        let mut codegen_open = self.codegen_log_open;
+        egui::Window::new("Code generation")
+            .open(&mut codegen_open)
+            .collapsible(false)
+            .resizable(true)
+            .default_width(560.0)
+            .default_height(200.0)
+            .default_pos(egui::pos2(320.0, 200.0))
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    for line in &self.codegen_log {
+                        ui.label(egui::RichText::new(line).monospace());
+                    }
+                });
+            });
+        self.codegen_log_open = codegen_open;
 
         egui::SidePanel::left("picker").resizable(true).default_width(360.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
