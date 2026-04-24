@@ -16,10 +16,10 @@ pub fn launch(program: Option<IrProgram>) -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 780.0])
-            .with_title("asn1-decoder — visualizer"),
+            .with_title("asn1-tool — visualizer"),
         ..Default::default()
     };
-    eframe::run_native("asn1-decoder", options, Box::new(|_cc| Box::new(VizApp::new(program))))
+    eframe::run_native("asn1-tool", options, Box::new(|_cc| Box::new(VizApp::new(program))))
 }
 
 struct VizApp {
@@ -49,7 +49,7 @@ impl VizApp {
             program,
             filter: String::new(),
             root: None,
-            theme: Theme::Dark,
+            theme: Theme::system_default(),
             about_open: false,
             diagnostics,
             diagnostics_open: false,
@@ -113,7 +113,7 @@ impl eframe::App for VizApp {
 
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.heading("asn1-decoder");
+                ui.heading("asn1-tool");
                 ui.separator();
 
                 ui.menu_button("File", |ui| {
@@ -207,13 +207,13 @@ impl eframe::App for VizApp {
         });
 
         let mut about_open = self.about_open;
-        egui::Window::new("About asn1-decoder")
+        egui::Window::new("About asn1-tool")
             .open(&mut about_open)
             .collapsible(false)
             .resizable(false)
             .default_pos(egui::pos2(440.0, 200.0))
             .show(ctx, |ui| {
-                ui.heading("asn1-decoder");
+                ui.heading("asn1-tool");
                 ui.label(env!("CARGO_PKG_DESCRIPTION"));
                 ui.separator();
                 egui::Grid::new("about-grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {

@@ -46,11 +46,44 @@ pub fn export_html(program: &IrProgram) -> String {
 }
 
 const HTML_HEAD: &str = r#"<!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <title>asn1-decoder — tree</title>
+<script>
+(function(){
+  var t = null;
+  try { t = localStorage.getItem('asn1-theme'); } catch (e) {}
+  if (t !== 'light' && t !== 'dark' && t !== 'grey') {
+    // Default to dark; only flip to light when the OS explicitly prefers it.
+    // Using `(prefers-color-scheme: light)` instead of negating dark means
+    // that "no preference" (which is also what browsers return on file://
+    // when detection is blocked) stays on dark.
+    t = 'dark';
+    try {
+      if (window.matchMedia('(prefers-color-scheme: light)').matches) t = 'light';
+    } catch (e) {}
+  }
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
 <style>
+:root, [data-theme="dark"] {
+    --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0;
+    --kw: #79c0ff; --ty: #a5d6ff; --ext: #d29922;
+    --hover: #21262d; --border: #30363d; --panel: #161b22;
+    --input-bg: #0d1117; --input-border: #30363d;
+    --recursive: #d29922; --unresolved: #ff7b72;
+}
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+        --bg: #ffffff; --fg: #1f2328; --muted: #656d76;
+        --kw: #0550ae; --ty: #0a3069; --ext: #9a6700;
+        --hover: #f6f8fa; --border: #eaecef; --panel: #f6f8fa;
+        --input-bg: #ffffff; --input-border: #d0d7de;
+        --recursive: #bf8700; --unresolved: #cf222e;
+    }
+}
 [data-theme="light"] {
     --bg: #ffffff; --fg: #1f2328; --muted: #656d76;
     --kw: #0550ae; --ty: #0a3069; --ext: #9a6700;
@@ -101,7 +134,7 @@ a.tyref { color: var(--ty); text-decoration: none; border-bottom: 1px dashed var
 a.tyref:hover { background: var(--hover); }
 input[type=search] { width: 100%; padding: .4rem; box-sizing: border-box; margin-bottom: .75rem; font: inherit; background: var(--input-bg); color: var(--fg); border: 1px solid var(--input-border); border-radius: 4px; }
 .recursive { color: var(--recursive); font-style: italic; }
-.unresolved { color: var(--unresolved); font-style: italic; }
+.unresolved { color: var(--ext); font-style: italic; }
 .constraint { color: var(--muted); padding: .1rem 0 .1rem 1.25rem; }
 .named { padding: .1rem 0 .1rem 1.25rem; }
 .warnings { margin: 0 0 1rem 0; border: 1px solid var(--ext); border-radius: 4px; padding: .25rem .5rem; background: var(--panel); }
@@ -119,7 +152,7 @@ const HTML_HEADER_CONTROLS: &str = r#"  <span class="spacer"></span>
   <label for="theme-sel" class="info">Theme:</label>
   <select id="theme-sel" onchange="document.documentElement.setAttribute('data-theme',this.value);try{localStorage.setItem('asn1-theme',this.value);}catch(e){}">
     <option value="light">Light</option>
-    <option value="dark" selected>Dark</option>
+    <option value="dark">Dark</option>
     <option value="grey">Grey</option>
   </select>
 </header>
@@ -129,19 +162,41 @@ const HTML_HEADER_CONTROLS: &str = r#"  <span class="spacer"></span>
 const HTML_TAIL: &str = r#"</main>
 <script>
 (function(){
-  try {
-    var t = localStorage.getItem('asn1-theme');
-    if (t === 'light' || t === 'dark' || t === 'grey') {
-      document.documentElement.setAttribute('data-theme', t);
-      var sel = document.getElementById('theme-sel');
-      if (sel) sel.value = t;
-    }
-  } catch (e) {}
+  var t = document.documentElement.getAttribute('data-theme');
+  var sel = document.getElementById('theme-sel');
+  if (sel && t) sel.value = t;
 })();
 </script>
 </body>
 </html>
 "#;
+
+/// If `ty` is a `Reference` whose target cannot be resolved against the
+/// loaded program, return the `(module, name)` of that dangling target.
+/// Used to short-circuit expansion so unresolved references render as flat
+/// yellow leaves instead of click-to-expand headers.
+fn unresolved_ref_target(
+    program: &IrProgram,
+    current_mod: &str,
+    ty: &IrType,
+) -> Option<(String, String)> {
+    if let IrType::Reference { module: tm, name } = ty {
+        let target_mod = tm.clone().unwrap_or_else(|| current_mod.to_string());
+        if program.find_type(&target_mod, name).is_none() {
+            return Some((target_mod, name.clone()));
+        }
+    }
+    None
+}
+
+/// Emit the trailing `(unresolved: Mod.Name)` marker in the warning color.
+fn unresolved_marker(target_mod: &str, target_name: &str) -> String {
+    format!(
+        " <span class=\"unresolved\">(unresolved: {}.{})</span>",
+        html_escape(target_mod),
+        html_escape(target_name)
+    )
+}
 
 /// Render a subtle, collapsible banner summarizing unresolved references —
 /// the HTML counterpart of the egui header's ⚠ chip + diagnostics window.
@@ -188,8 +243,12 @@ fn html_module(out: &mut String, program: &IrProgram, m: &IrModule) {
 
 fn html_type_def(out: &mut String, program: &IrProgram, module: &str, td: &IrTypeDef) {
     let anchor = type_anchor(module, &td.name);
+    let tail = match unresolved_ref_target(program, module, &td.ty) {
+        Some((tm, tn)) => unresolved_marker(&tm, &tn),
+        None => String::new(),
+    };
     let summary = format!(
-        "<span id=\"{anchor}\" class=\"name\">{}</span> <span class=\"kw\">::=</span> {}",
+        "<span id=\"{anchor}\" class=\"name\">{}</span> <span class=\"kw\">::=</span> {}{tail}",
         html_escape(&td.name),
         html_type_ref_or_plain(module, &td.ty)
     );
@@ -234,15 +293,20 @@ fn html_type_body(
         }
         IrType::SequenceOf { element, constraints } | IrType::SetOf { element, constraints } => {
             html_constraints(out, constraints);
+            let elem_tail = match unresolved_ref_target(program, module, element) {
+                Some((tm, tn)) => unresolved_marker(&tm, &tn),
+                None => String::new(),
+            };
             if html_expandable(program, module, element, visited) {
                 out.push_str("<details><summary><span class=\"kw\">[element]</span> ");
                 out.push_str(&html_type_ref_or_plain(module, element));
+                out.push_str(&elem_tail);
                 out.push_str("</summary>\n");
                 html_type_body(out, program, module, element, visited);
                 out.push_str("</details>\n");
             } else {
                 out.push_str(&format!(
-                    "<div class=\"leaf\"><span class=\"kw\">[element]</span> {}</div>\n",
+                    "<div class=\"leaf\"><span class=\"kw\">[element]</span> {}{elem_tail}</div>\n",
                     html_type_ref_or_plain(module, element)
                 ));
             }
@@ -362,8 +426,13 @@ fn html_field(
         IrOptionality::Default(_) => " DEFAULT …",
     };
     let ext = if f.is_extension { " <span class=\"ext\">[ext]</span>" } else { "" };
+    let unresolved = unresolved_ref_target(program, module, &f.ty);
+    let tail = match &unresolved {
+        Some((tm, tn)) => unresolved_marker(tm, tn),
+        None => String::new(),
+    };
     let summary = format!(
-        "<span class=\"name\">{}</span>: {}{}{ext}",
+        "<span class=\"name\">{}</span>: {}{}{ext}{tail}",
         html_escape(&f.name),
         html_type_ref_or_plain(module, &f.ty),
         html_escape(opt),
@@ -465,7 +534,9 @@ fn html_expandable(
                 return true;
             }
             match program.find_type(&target_mod, name) {
-                None => true, // worth emitting the "(unresolved)" marker
+                // Unresolved refs render as a flat yellow leaf at the field
+                // level (see `html_field`) — no drilldown needed.
+                None => false,
                 Some(td) => {
                     let mut next = visited.to_vec();
                     next.push(key);

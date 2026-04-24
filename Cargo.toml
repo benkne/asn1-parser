@@ -32,6 +32,7 @@ egui = "0.27"
 tempfile = "3"
 walkdir = "2"
 rfd = "0.14"
+dark-light = "1"
 
 [profile.release]
 lto = "thin"

@@ -10,6 +10,15 @@ pub(crate) enum Theme {
 }
 
 impl Theme {
+    /// Pick Light or Dark based on the OS's reported preference; Grey is an
+    /// opt-in choice only. Falls back to Dark when detection fails.
+    pub(crate) fn system_default() -> Self {
+        match dark_light::detect() {
+            dark_light::Mode::Light => Theme::Light,
+            dark_light::Mode::Dark | dark_light::Mode::Default => Theme::Dark,
+        }
+    }
+
     pub(crate) fn label(self) -> &'static str {
         match self {
             Theme::Light => "Light",
