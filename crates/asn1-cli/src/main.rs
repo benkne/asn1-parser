@@ -116,15 +116,10 @@ fn cmd_visualize(inputs: &[PathBuf], export: Option<&Path>) -> Result<()> {
         println!("wrote standalone HTML tree to {}", path.display());
         Ok(())
     } else {
-        let program = if inputs.is_empty() {
-            None
-        } else {
-            let (_, modules) = load_inputs(inputs)?;
-            let ir = asn1_ir::lower(&modules);
-            report_diagnostics(&ir);
-            Some(ir)
-        };
-        asn1_viz::launch(program).map_err(|e| anyhow!("visualizer failed: {e}"))
+        // Hand the raw paths to the visualizer — it loads them itself so the
+        // UI's "Add file…" / "Add directory…" actions can reparse the full
+        // set (which may resolve references that were previously unresolved).
+        asn1_viz::launch(inputs.to_vec()).map_err(|e| anyhow!("visualizer failed: {e}"))
     }
 }
 

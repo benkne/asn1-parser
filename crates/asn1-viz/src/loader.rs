@@ -2,6 +2,7 @@
 //! [`IrProgram`]. Used by the visualizer's File menu so it can open content
 //! from disk without going back through the CLI.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use asn1_ir::IrProgram;
@@ -18,8 +19,11 @@ pub(crate) struct LoadedProgram {
 /// Walk every input (files passed through, directories recursed) collecting
 /// `.asn` files, parse them, and lower the successful ones. Directories
 /// named `reference` are skipped — they typically hold upstream copies kept
-/// for reference only.
-pub(crate) fn load_program(inputs: &[PathBuf]) -> LoadedProgram {
+/// for reference only. Modules whose name is listed in `excluded` are
+/// parsed but dropped before lowering, which lets the UI hide a module on
+/// demand and let the IR's reference-resolver flag the missing symbols as
+/// warnings.
+pub(crate) fn load_program(inputs: &[PathBuf], excluded: &HashSet<String>) -> LoadedProgram {
     let paths = collect_asn_files(inputs);
     let mut sources = SourceMap::new();
     let mut modules = Vec::new();
@@ -35,7 +39,11 @@ pub(crate) fn load_program(inputs: &[PathBuf]) -> LoadedProgram {
         let text = String::from_utf8_lossy(&bytes).into_owned();
         let id = sources.add(p.clone(), text);
         match parse_source(&sources, id) {
-            Ok(m) => modules.push(m),
+            Ok(m) => {
+                if !excluded.contains(&m.name.value) {
+                    modules.push(m);
+                }
+            }
             Err(e) => parse_errors.push(e.render(&sources)),
         }
     }

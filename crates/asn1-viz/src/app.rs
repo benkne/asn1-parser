@@ -1,25 +1,26 @@
 //! Top-level eframe app: window chrome, menus, picker, and drill-down driver.
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::PathBuf;
 
 use asn1_ir::{render_type, IrDiagnostic, IrItem, IrProgram};
 
-use crate::loader::{load_program, LoadedProgram};
+use crate::loader::load_program;
 use crate::theme::Theme;
 use crate::tree::render_body;
 use crate::WARN_COLOR;
 
-/// Launch the visualizer UI. If `program` is `None`, the window opens empty
-/// and the user can load sources via the File menu. Blocks until the window
-/// is closed.
-pub fn launch(program: Option<IrProgram>) -> eframe::Result<()> {
+/// Launch the visualizer UI. `initial_paths` are loaded at startup (same as
+/// if the user imported them via File → Open); pass an empty slice to open
+/// an empty window. Blocks until the window is closed.
+pub fn launch(initial_paths: Vec<PathBuf>) -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 780.0])
             .with_title("asn1-tool — visualizer"),
         ..Default::default()
     };
-    eframe::run_native("asn1-tool", options, Box::new(|_cc| Box::new(VizApp::new(program))))
+    eframe::run_native("asn1-tool", options, Box::new(|_cc| Box::new(VizApp::new(initial_paths))))
 }
 
 struct VizApp {
@@ -33,9 +34,15 @@ struct VizApp {
     about_open: bool,
     diagnostics: Vec<IrDiagnostic>,
     diagnostics_open: bool,
-    /// Human-readable label for what is currently loaded (file name or
-    /// folder name). Shown in the header.
-    loaded_label: Option<String>,
+    /// All paths (files or directories) currently contributing to `program`,
+    /// in the order they were imported. Kept so that "Add file…" / "Add
+    /// directory…" can reparse the full set — adding new sources may
+    /// resolve references that were previously unresolved.
+    loaded_paths: Vec<PathBuf>,
+    /// Module names the user has dismissed via the × button on the picker.
+    /// These modules are still parsed but dropped before lowering so their
+    /// references surface as unresolved-reference warnings.
+    excluded_modules: HashSet<String>,
     /// Rendered parse errors from the last load. Non-empty keeps the errors
     /// window on-screen so the user notices.
     load_errors: Vec<String>,
@@ -43,28 +50,75 @@ struct VizApp {
 }
 
 impl VizApp {
-    fn new(program: Option<IrProgram>) -> Self {
-        let diagnostics = program.as_ref().map(IrProgram::diagnostics).unwrap_or_default();
-        Self {
-            program,
+    fn new(initial_paths: Vec<PathBuf>) -> Self {
+        let mut app = Self {
+            program: None,
             filter: String::new(),
             root: None,
             theme: Theme::system_default(),
             about_open: false,
-            diagnostics,
+            diagnostics: Vec::new(),
             diagnostics_open: false,
-            loaded_label: None,
+            loaded_paths: Vec::new(),
+            excluded_modules: HashSet::new(),
             load_errors: Vec::new(),
             load_errors_open: false,
+        };
+        if !initial_paths.is_empty() {
+            app.replace_with(initial_paths);
         }
+        app
     }
 
-    fn apply_loaded(&mut self, loaded: LoadedProgram, label: String) {
+    /// Parse `paths` as the *complete* source set and replace current state.
+    /// Resets filter/root/exclusions since the program has changed out from
+    /// under them.
+    fn replace_with(&mut self, paths: Vec<PathBuf>) {
+        self.excluded_modules.clear();
+        let loaded = load_program(&paths, &self.excluded_modules);
         self.diagnostics = loaded.program.diagnostics();
         self.program = Some(loaded.program);
         self.filter.clear();
         self.root = None;
-        self.loaded_label = Some(label);
+        self.loaded_paths = paths;
+        self.load_errors = loaded.parse_errors;
+        self.load_errors_open = !self.load_errors.is_empty();
+    }
+
+    /// Extend the loaded path list with `extra` and re-parse everything.
+    /// Filter and root are preserved — the user may be mid-drilldown — and
+    /// the root only clears if it no longer resolves in the new program.
+    /// Existing module exclusions are honored.
+    fn append_paths(&mut self, extra: Vec<PathBuf>) {
+        if extra.is_empty() {
+            return;
+        }
+        let mut all = std::mem::take(&mut self.loaded_paths);
+        all.extend(extra);
+        self.loaded_paths = all;
+        self.reload();
+    }
+
+    /// Add `name` to the excluded-modules set and reload. The module stays
+    /// in `loaded_paths` (so it can be resurrected by clearing the exclusion
+    /// or reopening) but drops out of the IR.
+    fn remove_module(&mut self, name: String) {
+        self.excluded_modules.insert(name);
+        self.reload();
+    }
+
+    /// Re-parse `loaded_paths` honoring the current `excluded_modules` set.
+    /// Preserves filter and root (clearing root only if it no longer
+    /// resolves in the new program).
+    fn reload(&mut self) {
+        let loaded = load_program(&self.loaded_paths, &self.excluded_modules);
+        self.diagnostics = loaded.program.diagnostics();
+        if let Some((m, n)) = &self.root {
+            if loaded.program.find_type(m, n).is_none() {
+                self.root = None;
+            }
+        }
+        self.program = Some(loaded.program);
         self.load_errors = loaded.parse_errors;
         self.load_errors_open = !self.load_errors.is_empty();
     }
@@ -75,36 +129,60 @@ impl VizApp {
         self.root = None;
         self.diagnostics.clear();
         self.diagnostics_open = false;
-        self.loaded_label = None;
+        self.loaded_paths.clear();
+        self.excluded_modules.clear();
         self.load_errors.clear();
         self.load_errors_open = false;
     }
 
+    fn pick_file(title: &str) -> Option<PathBuf> {
+        rfd::FileDialog::new().add_filter("ASN.1 source", &["asn"]).set_title(title).pick_file()
+    }
+
+    fn pick_folder(title: &str) -> Option<PathBuf> {
+        rfd::FileDialog::new().set_title(title).pick_folder()
+    }
+
     fn import_file(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("ASN.1 source", &["asn"])
-            .set_title("Open ASN.1 file")
-            .pick_file()
-        {
-            let label = label_for(&path);
-            self.apply_loaded(load_program(&[path]), label);
+        if let Some(path) = Self::pick_file("Open ASN.1 file") {
+            self.replace_with(vec![path]);
         }
     }
 
     fn import_directory(&mut self) {
-        if let Some(path) =
-            rfd::FileDialog::new().set_title("Open directory of .asn files").pick_folder()
-        {
-            let label = label_for(&path);
-            self.apply_loaded(load_program(&[path]), label);
+        if let Some(path) = Self::pick_folder("Open directory of .asn files") {
+            self.replace_with(vec![path]);
         }
     }
-}
 
-fn label_for(path: &Path) -> String {
-    path.file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.display().to_string())
+    fn add_file(&mut self) {
+        if let Some(path) = Self::pick_file("Add ASN.1 file") {
+            self.append_paths(vec![path]);
+        }
+    }
+
+    fn add_directory(&mut self) {
+        if let Some(path) = Self::pick_folder("Add directory of .asn files") {
+            self.append_paths(vec![path]);
+        }
+    }
+
+    fn export_html(&mut self) {
+        let Some(program) = &self.program else { return };
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("HTML", &["html", "htm"])
+            .set_file_name("asn1-tree.html")
+            .set_title("Export HTML tree")
+            .save_file()
+        else {
+            return;
+        };
+        let html = crate::html::export_html(program);
+        if let Err(e) = std::fs::write(&path, &html) {
+            self.load_errors.push(format!("writing {}: {e}", path.display()));
+            self.load_errors_open = true;
+        }
+    }
 }
 
 impl eframe::App for VizApp {
@@ -126,8 +204,38 @@ impl eframe::App for VizApp {
                         self.import_directory();
                     }
                     ui.separator();
-                    let can_close = self.program.is_some();
-                    if ui.add_enabled(can_close, egui::Button::new("Close")).clicked() {
+                    let has_program = self.program.is_some();
+                    if ui
+                        .add_enabled(has_program, egui::Button::new("Add file…"))
+                        .on_hover_text(
+                            "Import an additional .asn file alongside the current sources",
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.add_file();
+                    }
+                    if ui
+                        .add_enabled(has_program, egui::Button::new("Add directory…"))
+                        .on_hover_text(
+                            "Import an additional directory alongside the current sources",
+                        )
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.add_directory();
+                    }
+                    ui.separator();
+                    if ui
+                        .add_enabled(has_program, egui::Button::new("Export HTML…"))
+                        .on_hover_text("Save the current tree as a standalone HTML file")
+                        .clicked()
+                    {
+                        ui.close_menu();
+                        self.export_html();
+                    }
+                    ui.separator();
+                    if ui.add_enabled(has_program, egui::Button::new("Close")).clicked() {
                         ui.close_menu();
                         self.clear();
                     }
@@ -156,10 +264,6 @@ impl eframe::App for VizApp {
                     Some(p) => ui.label(format!("{} module(s)", p.modules.len())),
                     None => ui.label(egui::RichText::new("no sources loaded").weak().italics()),
                 };
-                if let Some(label) = &self.loaded_label {
-                    ui.separator();
-                    ui.label(egui::RichText::new(format!("source: {label}")).weak());
-                }
                 if !self.load_errors.is_empty() {
                     ui.separator();
                     let n = self.load_errors.len();
@@ -348,21 +452,46 @@ impl VizApp {
         }
 
         let filter_active = !filter.is_empty();
+        // Deferred so we don't mutate `self` while we're iterating over
+        // `&self.program`'s derived groups.
+        let mut to_remove: Option<String> = None;
         for (module, types) in &groups {
             if types.is_empty() && filter_active {
                 continue;
             }
-            egui::CollapsingHeader::new(format!("{module}  ({})", types.len()))
-                .id_source(format!("mod::{module}"))
-                .default_open(filter_active)
-                .show(ui, |ui| {
-                    for n in types {
-                        let selected = self.root.as_ref() == Some(&(module.clone(), n.clone()));
-                        if ui.selectable_label(selected, n).clicked() {
-                            self.root = Some((module.clone(), n.clone()));
+            let id = ui.make_persistent_id(format!("mod::{module}"));
+            let state = egui::collapsing_header::CollapsingState::load_with_default_open(
+                ui.ctx(),
+                id,
+                filter_active,
+            );
+            let header = state.show_header(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(format!("{module}  ({})", types.len())).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .small_button("×")
+                            .on_hover_text(
+                                "Remove this module from view (may produce new warnings)",
+                            )
+                            .clicked()
+                        {
+                            to_remove = Some(module.clone());
                         }
-                    }
+                    });
                 });
+            });
+            header.body(|ui| {
+                for n in types {
+                    let selected = self.root.as_ref() == Some(&(module.clone(), n.clone()));
+                    if ui.selectable_label(selected, n).clicked() {
+                        self.root = Some((module.clone(), n.clone()));
+                    }
+                }
+            });
+        }
+        if let Some(name) = to_remove {
+            self.remove_module(name);
         }
     }
 

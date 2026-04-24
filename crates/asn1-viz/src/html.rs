@@ -20,13 +20,7 @@ pub fn export_html(program: &IrProgram) -> String {
     let mut out = String::new();
     out.push_str(HTML_HEAD);
     out.push_str("<header>\n  <h1>asn1-tool</h1>\n");
-    let authors = env!("CARGO_PKG_AUTHORS").replace(':', ", ");
-    out.push_str(&format!(
-        "  <span class=\"info\">v{}{}{}</span>\n",
-        env!("CARGO_PKG_VERSION"),
-        if authors.is_empty() { "" } else { " — by " },
-        html_escape(&authors),
-    ));
+    out.push_str(&format!("  <span class=\"info\">v{}</span>\n", env!("CARGO_PKG_VERSION"),));
     out.push_str(HTML_HEADER_CONTROLS);
     let type_total: usize = program.all_types().count();
     out.push_str(&format!(
@@ -651,7 +645,6 @@ mod tests {
             html.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))),
             "header should show version from Cargo metadata"
         );
-        assert!(html.contains("— by "), "header should show creator(s)");
         assert!(html.contains(r#"id="theme-sel""#), "theme selector should be present");
         for theme in ["light", "dark", "grey"] {
             assert!(
