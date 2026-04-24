@@ -15,21 +15,24 @@ this document first (with justification in the PR description), then implement.
 2. generates idiomatic **Java classes** that faithfully model those specifications so
    they can be used as a library by downstream Java projects, and
 3. renders an **interactive, hierarchical visualization** of the parsed specification
-   (tree view, click-to-expand / collapse).
+   (tree view, click-to-expand / collapse), with a self-contained HTML export that
+   mirrors the GUI.
 
 The canonical end-to-end test input lives in `examples/poim/` and is a real-world
 ETSI ITS POIM specification split across four modules
 (`POIM-PDU-Description.asn`, `POIM-CommonContainers.asn`,
-`POIM-ParkingAvailability.asn`, `ETSI-ITS-CDD.asn`). Anything the tool ships with
-must round-trip this example without manual edits to the input.
+`POIM-ParkingAvailability.asn`, `ETSI-ITS-CDD.asn`). Additional fixtures live in
+`examples/ts103301/` (ETSI TS 103 301 ITS facilities, pulled in as a git
+submodule) and `examples/lte_nr_rrc_rel18.6_specs/` (3GPP RRC Rel-18.6). Anything
+the tool ships with must round-trip these inputs without manual edits.
 
 ### 1.1 Goals
 
 - Accept **generic, standards-conformant ASN.1** — not a POIM-specific dialect.
 - Produce **compilable, self-contained Java** source that preserves ASN.1 semantics
   (types, constraints, optionality, extension markers, information object sets).
-- Make the parsed hierarchy **explorable** via a GUI (primary) and a machine-readable
-  export (secondary).
+- Make the parsed hierarchy **explorable** via a native GUI (primary) and a
+  self-contained HTML export (secondary).
 - Adhere to a **professional, idiomatic Rust workspace layout** that a new
   contributor can navigate without guidance.
 
@@ -47,7 +50,7 @@ must round-trip this example without manual edits to the input.
 ## 2. Repository layout
 
 The project is a **Cargo workspace**. Every Rust concern lives under `crates/`;
-generator templates, fixtures, and docs live at the workspace root.
+fixtures and top-level config live at the workspace root.
 
 ```
 asn1-decoder/
@@ -61,6 +64,7 @@ asn1-decoder/
 ├── clippy.toml                   # lint configuration
 ├── .editorconfig
 ├── .gitignore
+├── .gitmodules                   # pulls in examples/ts103301
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml                # fmt + clippy + test on push/PR
@@ -70,71 +74,56 @@ asn1-decoder/
 │   ├── asn1-parser/              # lexer + grammar → concrete syntax tree
 │   │   ├── Cargo.toml
 │   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── lexer.rs
-│   │   │   ├── grammar.rs        # nom / chumsky / pest combinators
-│   │   │   ├── cst.rs            # concrete syntax tree
-│   │   │   └── diagnostics.rs    # span-aware error reporting
+│   │   │   ├── lib.rs            # `parse_source` entry point
+│   │   │   ├── lexer.rs          # hand-written tokenizer
+│   │   │   ├── grammar.rs        # recursive-descent parser over tokens
+│   │   │   ├── cst.rs            # concrete syntax tree + `Spanned<T>`
+│   │   │   └── diagnostics.rs    # `SourceMap`, `Span`, `ParseError`
 │   │   └── tests/
+│   │       └── poim_smoke.rs     # parses examples/poim/ end-to-end
 │   │
 │   ├── asn1-ir/                  # typed intermediate representation
-│   │   ├── Cargo.toml            # resolves imports, validates references,
-│   │   ├── src/                  # lowers CST → semantic IR, expands
-│   │   │   ├── lib.rs            # information object classes & sets
-│   │   │   ├── module.rs
-│   │   │   ├── types.rs
-│   │   │   ├── constraints.rs
-│   │   │   ├── resolver.rs       # cross-module name resolution
-│   │   │   └── lowering.rs
+│   │   ├── Cargo.toml            # lowers CST → semantic IR, resolves
+│   │   ├── src/                  # cross-module references, exposes
+│   │   │   └── lib.rs            # `IrProgram::diagnostics()` for the UI
 │   │   └── tests/
+│   │       └── poim_lower.rs     # asserts POIM lowers without errors
 │   │
 │   ├── asn1-codegen-java/        # IR → Java source files
 │   │   ├── Cargo.toml
 │   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── emitter.rs        # writes .java files to an output dir
-│   │   │   ├── naming.rs         # ASN.1 → Java identifier mapping
-│   │   │   ├── mapping.rs        # ASN.1 type → Java type rules
-│   │   │   └── templates/        # string templates per Java construct
+│   │   │   └── lib.rs            # emits .java sources given `JavaOptions`
 │   │   └── tests/
+│   │       └── poim_codegen.rs   # golden-style check of POIM output
 │   │
-│   ├── asn1-viz/                 # interactive tree viewer (egui)
+│   ├── asn1-viz/                 # interactive tree viewer (egui) + HTML export
 │   │   ├── Cargo.toml
 │   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── app.rs            # eframe::App impl
-│   │   │   ├── tree.rs           # expand/collapse model
-│   │   │   └── export.rs         # JSON / HTML export
-│   │   └── assets/
+│   │   │   ├── lib.rs            # re-exports `launch` and `export_html`
+│   │   │   ├── app.rs            # eframe::App — menus, picker, drill-down
+│   │   │   ├── tree.rs           # click-to-expand renderer shared by the UI
+│   │   │   ├── loader.rs         # walks inputs, parses, lowers to IR
+│   │   │   ├── theme.rs          # Light / Dark / Grey palettes
+│   │   │   ├── html.rs           # standalone HTML exporter
+│   │   │   └── test_fixtures.rs  # shared helpers for unit tests
 │   │
 │   └── asn1-cli/                 # binary crate — the user-facing tool
-│       ├── Cargo.toml
-│       ├── src/
-│       │   ├── main.rs
-│       │   └── commands/
-│       │       ├── generate.rs   # `asn1-decoder generate`
-│       │       ├── visualize.rs  # `asn1-decoder visualize`
-│       │       └── check.rs      # `asn1-decoder check`
-│       └── tests/                # CLI integration tests (assert_cmd)
+│       ├── Cargo.toml            # produces the `asn1-decoder` binary
+│       └── src/
+│           └── main.rs           # `check` / `generate` / `visualize`
 │
-├── examples/
-│   └── poim/                     # canonical end-to-end fixture (do not edit)
-│       ├── ETSI-ITS-CDD.asn
-│       ├── POIM-CommonContainers.asn
-│       ├── POIM-ParkingAvailability.asn
-│       └── POIM-PDU-Description.asn
-│
-├── tests/                        # workspace-level end-to-end tests
-│   └── e2e_poim.rs               # parses examples/poim/, generates Java,
-│                                 # compiles it with javac, asserts success
-│
-├── docs/
-│   ├── asn1-support-matrix.md    # which ASN.1 features are implemented
-│   ├── java-mapping.md           # ASN.1 → Java mapping table
-│   └── architecture.md           # data flow: CST → IR → codegen / viz
-│
-└── target/                       # build output (gitignored)
+└── examples/
+    ├── poim/                     # canonical end-to-end fixture (do not edit)
+    │   ├── ETSI-ITS-CDD.asn
+    │   ├── POIM-CommonContainers.asn
+    │   ├── POIM-ParkingAvailability.asn
+    │   └── POIM-PDU-Description.asn
+    ├── ts103301/                 # git submodule — ETSI TS 103 301 facilities
+    └── lte_nr_rrc_rel18.6_specs/ # 3GPP RRC Rel-18.6 ASN.1 sources
 ```
+
+Each crate keeps its tests co-located under `crates/<name>/tests/`; there is
+intentionally no workspace-level `tests/` directory today.
 
 ### 2.1 Dependency direction
 
@@ -144,8 +133,10 @@ asn1-cli ──► asn1-viz ──► asn1-ir ──► asn1-parser
 ```
 
 A crate **must not** depend on anything to its left in the diagram. `asn1-parser`
-has no intra-workspace dependencies. `asn1-ir` is the single source of truth consumed
-by both the code generator and the visualizer.
+has no intra-workspace dependencies. `asn1-ir` is the single source of truth
+consumed by both the code generator and the visualizer. `asn1-viz` additionally
+depends on `asn1-parser` because it parses inputs itself (the GUI's File menu
+has to reparse from disk, not take a pre-built IR).
 
 ---
 
@@ -186,7 +177,10 @@ list that appears in the POIM fixture is also implicitly required.
 - Value assignments: `name Type ::= value`
 
 Behavior on unsupported syntax: the parser must emit a **span-accurate diagnostic**
-(file, line, column, caret) rather than silently producing wrong Java.
+(file, line, column, caret) rather than silently producing wrong Java. References
+that parse but fail to resolve surface as *warnings* via
+`IrProgram::diagnostics()` and are shown in the visualizer's diagnostics panel
+and in the HTML export's warnings banner — they do not abort the build.
 
 ---
 
@@ -195,7 +189,7 @@ Behavior on unsupported syntax: the parser must emit a **span-accurate diagnosti
 - **One Java package per ASN.1 module.** Package name derived from the module name:
   `POIM-PDU-Description` → `poim.pdu.description` (lowercase, hyphens to dots, no
   double dots). The package prefix is configurable via CLI flag
-  (`--java-package-prefix com.example`).
+  (`--java-package-prefix com.example`, default `generated.asn1`).
 - **One top-level Java file per named ASN.1 type.**
 - **Idiomatic Java 17+**: use `record` for immutable SEQUENCE-of-primitives where
   no extension marker is present; use sealed interfaces for `CHOICE`; use
@@ -211,11 +205,9 @@ Behavior on unsupported syntax: the parser must emit a **span-accurate diagnosti
   field, or enum constant, preserving `@field` / `@category` / `@revision`
   annotations as Javadoc tags.
 - The generated tree **must compile with `javac --release 17`** without warnings
-  treated as errors. The end-to-end test enforces this.
+  treated as errors.
 - No runtime dependency on Jackson, Lombok, Protobuf, or any other library. The
   generated code is plain Java stdlib only.
-
-Full mapping table lives in `docs/java-mapping.md` and must be kept in sync.
 
 ---
 
@@ -223,19 +215,42 @@ Full mapping table lives in `docs/java-mapping.md` and must be kept in sync.
 
 - **Framework**: `eframe` / `egui` for a cross-platform native window (Windows,
   Linux, macOS). No Electron, no bundled browser.
-- **View**: a single-pane tree rooted at the module list. Each node shows the
-  type name on the left and the ASN.1 kind (`SEQUENCE`, `CHOICE`, …) as a subtle
-  badge on the right. Clicking a node expands/collapses its children.
-- **Selection**: selecting a leaf opens a detail panel showing the original
-  doc comment, resolved type, constraints, and the source span
-  (`file:line:col`).
-- **Cross-references**: type references are clickable and navigate the tree to
-  the referenced definition.
-- **Export**: `File → Export…` writes either a standalone HTML file
-  (self-contained, no external assets) or a JSON dump of the IR. Both formats
-  must round-trip through `asn1-decoder visualize --open <file>`.
+- **Layout**: a top menu bar, a left picker panel, and a central drill-down
+  panel.
+  - **Picker** (left): every module in the loaded program is a collapsible
+    group listing its named types. A text filter matches module or type names.
+    Each module header carries a right-aligned `×` button that *removes* the
+    module from the view — the module stays on disk but is dropped before
+    lowering, so unresolved references it owned surface as new warnings.
+  - **Drill-down** (center): the selected root type is rendered as a
+    click-to-expand tree. Composite types (`SEQUENCE` / `SET` / `CHOICE` /
+    `ENUMERATED` / `SEQUENCE OF` / `SET OF`) expand in place; named-type
+    references resolve against the IR so the user can keep drilling through
+    aliases until primitive leaves are reached. Cycles are detected and shown
+    as `↺ recursive: Module.Name` rather than looped forever.
+- **Sources panel**: the header bar shows module count, a parse-errors chip,
+  a warnings chip, and the current drill-down root. Clicking a chip opens
+  its window (parse errors or unresolved references) with the full list.
+- **File menu** (all actions that require a loaded program are disabled when
+  none is loaded):
+  - **Open file… / Open directory…** — replace the current source set via a
+    native file dialog (`rfd`).
+  - **Add file… / Add directory…** — import an additional source alongside
+    the current set and re-parse; references that were previously unresolved
+    may now resolve. Honors any module-level exclusions already in effect.
+  - **Export HTML…** — save the current tree as a standalone HTML file via a
+    native save-file dialog.
+  - **Close** — clear the loaded program.
+- **View menu**: theme selector with **Light**, **Dark**, and **Grey** (a
+  hand-tuned mid-tone neutral). The initial theme follows the OS preference
+  via the `dark-light` crate, falling back to Dark.
+- **HTML export**: self-contained (no external assets); embeds a `prefers-
+  color-scheme` script so the exported file tracks the viewer's OS theme.
+  Includes a collapsible warnings banner that mirrors the GUI's diagnostics
+  panel. Unresolved references render as flat yellow leaves (no expand
+  triangle), matching the GUI.
 - **Headless mode**: `asn1-decoder visualize --export tree.html` produces the
-  export without opening a window, so the visualizer is usable in CI.
+  HTML export without opening a window, so the visualizer is usable in CI.
 
 ---
 
@@ -244,18 +259,22 @@ Full mapping table lives in `docs/java-mapping.md` and must be kept in sync.
 Binary name: `asn1-decoder`. Built with `clap` (derive API).
 
 ```
+asn1-decoder check      <inputs...>
 asn1-decoder generate   <inputs...> --out <dir> [--java-package-prefix <p>]
-asn1-decoder visualize  <inputs...> [--export <file>] [--format html|json]
-asn1-decoder check      <inputs...>        # parse + resolve, no output
+asn1-decoder visualize  <inputs...> [--export <file>]
 asn1-decoder --version
 asn1-decoder --help
 ```
 
 - `<inputs...>` accepts individual `.asn` files and directories (recursed,
-  `*.asn` only). Multiple inputs are treated as a single compilation unit so
-  cross-module `IMPORTS` resolve.
-- Exit codes: `0` success, `1` user error (bad args, missing file), `2` parse
-  or semantic error (diagnostics printed to stderr).
+  `*.asn` only; directories named `reference` are skipped). Multiple inputs are
+  treated as a single compilation unit so cross-module `IMPORTS` resolve.
+- `visualize` without `--export` launches the native GUI; with `--export <file>`
+  writes the standalone HTML and exits.
+- `generate` currently emits `.java` files rooted at `--out`; the default
+  package prefix is `generated.asn1`.
+- Unresolved references are reported as warnings on stderr and do not change
+  the exit code.
 
 ---
 
@@ -268,72 +287,74 @@ All commands are run from the workspace root.
 | Format                      | `cargo fmt --all`                                   |
 | Lint (must pass clean)      | `cargo clippy --workspace --all-targets -- -D warnings` |
 | Unit + integration tests    | `cargo test --workspace`                            |
-| End-to-end (POIM → Java)    | `cargo test -p asn1-decoder --test e2e_poim`        |
 | Run CLI (debug)             | `cargo run -p asn1-cli -- generate examples/poim --out target/java` |
 | Launch visualizer           | `cargo run -p asn1-cli -- visualize examples/poim`  |
+| Export HTML (headless)      | `cargo run -p asn1-cli -- visualize examples/poim --export tree.html` |
 | Release build               | `cargo build --release --workspace`                 |
 
-The e2e test requires `javac` on `PATH`; CI installs Temurin 17.
+The `ts103301` fixture is a git submodule — clone with
+`git clone --recurse-submodules` or run `git submodule update --init` after a
+plain clone.
 
 ---
 
 ## 8. Coding standards
 
-- **Toolchain**: pinned in `rust-toolchain.toml` (stable, currently 1.85+).
-  No nightly features without an RFC in `docs/`.
+- **Toolchain**: pinned in `rust-toolchain.toml` (stable, currently 1.95+).
+  No nightly features.
 - **Formatting**: `cargo fmt` is authoritative. CI fails on diff.
 - **Lints**: `clippy` at `-D warnings` workspace-wide. Allow-list specific lints
   only in the crate that needs the exception, with a comment.
 - **Errors**: library crates return `thiserror`-derived enums; the CLI uses
-  `anyhow` only at the top edge. Parser errors must carry a `Span { file, start, end }`
-  so diagnostics can show source context.
+  `anyhow` only at the top edge. Parser errors carry a
+  `Span { file, start, end }` so diagnostics can show source context.
 - **Public API**: every `pub` item in a library crate carries a rustdoc comment.
 - **No `unsafe`** anywhere in the workspace. If it becomes necessary, it lives
   behind a reviewed module with a `// SAFETY:` comment per block.
 - **Dependencies**: prefer well-maintained crates already in the tree. New
-  dependencies require justification in the PR description.
+  dependencies require justification in the PR description. The visualizer
+  stack is intentionally narrow: `eframe`/`egui`, `rfd` (native dialogs),
+  `dark-light` (OS theme), `walkdir` (directory recursion).
 
 ---
 
 ## 9. Testing strategy
 
-- **`asn1-parser`**: snapshot tests (`insta`) against a corpus of small `.asn`
-  snippets covering each grammar production. Negative tests assert precise
-  diagnostic spans.
-- **`asn1-ir`**: unit tests for resolver edge cases (forward references,
-  cyclic imports, missing symbols, information object set expansion).
-- **`asn1-codegen-java`**: golden-file tests — the generated Java is checked
-  into `crates/asn1-codegen-java/tests/golden/` and diffed on each run.
-- **`asn1-viz`**: unit tests for the tree model (expand/collapse, selection).
-  The egui surface itself is not unit-tested; the JSON export is.
-- **Workspace e2e** (`tests/e2e_poim.rs`): parses `examples/poim/`, generates
-  Java into a temp dir, invokes `javac --release 17 -Xlint:all -Werror`, asserts
-  exit 0 and that every expected top-level type produced a `.java` file.
+- **`asn1-parser`**: integration tests under `crates/asn1-parser/tests/` exercise
+  the parser end-to-end against the POIM fixture. Negative-path coverage is
+  added as diagnostics regressions are discovered.
+- **`asn1-ir`**: integration tests under `crates/asn1-ir/tests/` lower the POIM
+  fixture and assert the resolver produces no unexpected diagnostics.
+- **`asn1-codegen-java`**: integration tests under
+  `crates/asn1-codegen-java/tests/` generate Java for the POIM fixture and
+  assert on file layout, package naming, and per-type output shape.
+- **`asn1-viz`**: unit tests inside `src/` (tree model, HTML export structure)
+  with shared helpers in `test_fixtures.rs`. The egui surface itself is not
+  unit-tested; the HTML export is.
 
-CI runs the full matrix on Linux, macOS, and Windows.
+CI (`.github/workflows/ci.yml`) runs fmt + clippy + test on Linux, macOS, and
+Windows.
 
 ---
 
 ## 10. Versioning & releases
 
-- Semantic versioning at the workspace level; all crates share one version.
+- Semantic versioning at the workspace level; all crates share one version
+  (`0.1.0` today).
 - `release.yml` triggers on `v*` tags and attaches prebuilt binaries for
   `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`, and
   `aarch64-apple-darwin`.
 - Breaking changes to generated Java (renames, package layout) require a major
-  bump and a migration note in `docs/`.
+  bump and a migration note in the release body.
 
 ---
 
 ## 11. Roadmap
 
-1. **M1 — Parser.** Full CST for the POIM fixture; round-trip printer.
-2. **M2 — IR.** Resolver, constraint model, information object expansion.
-3. **M3 — Java codegen.** POJOs + enums, doc comments, compile-clean output.
-4. **M4 — CLI.** `generate` / `check` commands wired to M1–M3.
-5. **M5 — Visualizer.** egui tree view, detail panel, HTML/JSON export.
-6. **M6 — Polish.** Cross-platform release binaries, docs site, broader
-   ASN.1 corpus beyond POIM.
-
-Each milestone ends with green CI and an updated
-`docs/asn1-support-matrix.md`.
+1. **M1 — Parser.** Full CST for the POIM fixture; span-accurate diagnostics. ✅
+2. **M2 — IR.** Resolver, constraint model, information object expansion. ✅
+3. **M3 — Java codegen.** POJOs + enums, doc comments, compile-clean output. ✅
+4. **M4 — CLI.** `check` / `generate` / `visualize` commands wired to M1–M3. ✅
+5. **M5 — Visualizer.** egui tree view + File/View menus + HTML export. ✅
+6. **M6 — Polish.** Cross-platform release binaries, broader ASN.1 corpus beyond
+   POIM (ts103301, 3GPP RRC already in-tree as fixtures).
