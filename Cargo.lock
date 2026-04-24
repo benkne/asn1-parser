@@ -186,6 +186,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "asn1-codegen-cpp"
+version = "0.1.0"
+dependencies = [
+ "asn1-ir",
+ "asn1-parser",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "asn1-codegen-java"
 version = "0.1.0"
 dependencies = [

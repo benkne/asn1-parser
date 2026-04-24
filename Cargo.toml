@@ -4,6 +4,7 @@ members = [
     "crates/asn1-parser",
     "crates/asn1-ir",
     "crates/asn1-codegen-java",
+    "crates/asn1-codegen-cpp",
     "crates/asn1-viz",
     "crates/asn1-cli",
 ]
@@ -20,6 +21,7 @@ authors = ["Benedikt Kneissl"]
 asn1-parser = { path = "crates/asn1-parser", version = "0.1.0" }
 asn1-ir = { path = "crates/asn1-ir", version = "0.1.0" }
 asn1-codegen-java = { path = "crates/asn1-codegen-java", version = "0.1.0" }
+asn1-codegen-cpp = { path = "crates/asn1-codegen-cpp", version = "0.1.0" }
 asn1-viz = { path = "crates/asn1-viz", version = "0.1.0" }
 
 anyhow = "1"
