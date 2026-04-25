@@ -186,6 +186,7 @@ name = "asn1-cli"
 version = "1.1.0"
 dependencies = [
  "anyhow",
+ "asn1-codegen-cpp",
  "asn1-codegen-java",
  "asn1-ir",
  "asn1-parser",

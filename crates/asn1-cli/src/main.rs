@@ -12,7 +12,12 @@ use asn1_parser::{parse_source, Module, SourceMap};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "asn1-decoder", version, about = "ASN.1 → Java / visualizer", long_about = None)]
+#[command(
+    name = "asn1-decoder",
+    version,
+    about = "ASN.1 toolkit — parse, validate, generate Java/C++ sources, and explore specs interactively or as HTML",
+    long_about = None,
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -26,6 +31,7 @@ enum Command {
         inputs: Vec<PathBuf>,
     },
     /// Parse + lower + emit Java source files.
+    #[command(alias = "generate-java")]
     Generate {
         /// Files or directories containing `.asn` sources.
         inputs: Vec<PathBuf>,
@@ -35,6 +41,17 @@ enum Command {
         /// Root Java package prefix (default: `generated.asn1`).
         #[arg(long = "java-package-prefix", alias = "package", default_value = "generated.asn1")]
         java_package_prefix: String,
+    },
+    /// Parse + lower + emit C++ header files (one `.hpp` per named type).
+    GenerateCpp {
+        /// Files or directories containing `.asn` sources.
+        inputs: Vec<PathBuf>,
+        /// Output root directory. Headers are placed under `<out>/<module-slug>/Name.hpp`.
+        #[arg(short, long)]
+        out: PathBuf,
+        /// Root C++ namespace; per-module namespace is appended as `<base>::<module_slug>`.
+        #[arg(long = "cpp-namespace", alias = "namespace", default_value = "generated::asn1")]
+        cpp_namespace: String,
     },
     /// Parse + lower, then open the interactive tree-view (or export a static HTML tree).
     Visualize {
@@ -51,7 +68,10 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Check { inputs } => cmd_check(&inputs),
         Command::Generate { inputs, out, java_package_prefix } => {
-            cmd_generate(&inputs, &out, &java_package_prefix)
+            cmd_generate_java(&inputs, &out, &java_package_prefix)
+        }
+        Command::GenerateCpp { inputs, out, cpp_namespace } => {
+            cmd_generate_cpp(&inputs, &out, &cpp_namespace)
         }
         Command::Visualize { inputs, export } => cmd_visualize(&inputs, export.as_deref()),
     }
@@ -80,7 +100,7 @@ fn report_diagnostics(ir: &asn1_ir::IrProgram) {
     );
 }
 
-fn cmd_generate(inputs: &[PathBuf], out: &Path, package: &str) -> Result<()> {
+fn cmd_generate_java(inputs: &[PathBuf], out: &Path, package: &str) -> Result<()> {
     let (_, modules) = load_inputs(inputs)?;
     let ir = asn1_ir::lower(&modules);
     report_diagnostics(&ir);
@@ -97,6 +117,28 @@ fn cmd_generate(inputs: &[PathBuf], out: &Path, package: &str) -> Result<()> {
             .with_context(|| format!("writing {}", path.display()))?;
     }
     println!("wrote {} Java file(s) under {}", files.len(), out.display());
+    Ok(())
+}
+
+fn cmd_generate_cpp(inputs: &[PathBuf], out: &Path, namespace: &str) -> Result<()> {
+    let (_, modules) = load_inputs(inputs)?;
+    let ir = asn1_ir::lower(&modules);
+    report_diagnostics(&ir);
+    let opts = asn1_codegen_cpp::CppOptions {
+        base_namespace: namespace.to_string(),
+        indent: "    ".into(),
+    };
+    let files = asn1_codegen_cpp::generate(&ir, &opts);
+    for f in &files {
+        let path = out.join(&f.relative_path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        std::fs::write(&path, &f.contents)
+            .with_context(|| format!("writing {}", path.display()))?;
+    }
+    println!("wrote {} C++ header file(s) under {}", files.len(), out.display());
     Ok(())
 }
 
