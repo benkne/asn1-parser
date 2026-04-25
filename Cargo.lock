@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "asn1-cli"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "asn1-codegen-java",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "asn1-codegen-cpp"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "asn1-ir",
  "asn1-parser",
@@ -205,7 +205,7 @@ dependencies = [
 
 [[package]]
 name = "asn1-codegen-java"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "asn1-ir",
  "asn1-parser",
@@ -214,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "asn1-ir"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "asn1-parser",
  "serde",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "asn1-parser"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
@@ -231,15 +231,12 @@ dependencies = [
 
 [[package]]
 name = "asn1-tool"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "asn1-viz",
  "clap",
  "dirs 5.0.1",
- "eframe",
- "egui",
- "image 0.25.10",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -248,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "asn1-viz"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "asn1-codegen-cpp",
  "asn1-codegen-java",
@@ -257,6 +254,7 @@ dependencies = [
  "dark-light",
  "eframe",
  "egui",
+ "image 0.25.10",
  "rfd",
  "walkdir",
 ]

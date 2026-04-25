@@ -14,20 +14,26 @@ use asn1_ir::{
     IrStructMember, IrType,
 };
 
-use crate::{render_constraint, WARN_COLOR};
+use crate::{describe_constraint, docfmt, WARN_COLOR};
 
 /// Approximate width of a `CollapsingHeader`'s disclosure triangle (▸ + gap),
 /// used to line up leaf labels with their expandable siblings.
 const TRIANGLE_INDENT: f32 = 18.0;
 
-/// Leaf label that aligns with `CollapsingHeader` siblings by padding past the
-/// triangle gutter, colored with [`WARN_COLOR`] so unresolved references stay
-/// visually distinct from resolved ones.
-fn warn_leaf(ui: &mut egui::Ui, text: impl Into<String>) {
+/// Leaf label aligned with `CollapsingHeader` siblings by padding past the
+/// triangle gutter, so a primitive field doesn't appear visually outdented
+/// next to expandable fields at the same nesting level.
+fn leaf(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>) {
     ui.horizontal(|ui| {
         ui.add_space(TRIANGLE_INDENT);
-        ui.label(egui::RichText::new(text.into()).color(WARN_COLOR));
+        ui.label(text);
     });
+}
+
+/// Like [`leaf`] but coloured with [`WARN_COLOR`] so unresolved references and
+/// other warning-state labels stay visually distinct.
+fn warn_leaf(ui: &mut egui::Ui, text: impl Into<String>) {
+    leaf(ui, egui::RichText::new(text.into()).color(WARN_COLOR));
 }
 
 pub(crate) fn render_body(
@@ -77,7 +83,7 @@ pub(crate) fn render_body(
             let target_mod = module.clone().unwrap_or_else(|| current_mod.to_string());
             let key = (target_mod.clone(), name.clone());
             if visited.contains(&key) {
-                ui.label(format!("↺ recursive: {target_mod}.{name}"));
+                leaf(ui, format!("↺ recursive: {target_mod}.{name}"));
                 return;
             }
             let Some(td) = program.find_type(&target_mod, name) else {
@@ -87,7 +93,7 @@ pub(crate) fn render_body(
             let mut next = visited.to_vec();
             next.push(key);
             if let Some(doc) = &td.doc {
-                ui.label(doc);
+                docfmt::render_egui(ui, doc, &format!("ref-{target_mod}-{name}"));
                 ui.add_space(2.0);
             }
             render_body(ui, program, &target_mod, path, &td.ty, &next);
@@ -114,8 +120,14 @@ pub(crate) fn render_body(
 }
 
 fn render_constraints(ui: &mut egui::Ui, cs: &[IrConstraint]) {
+    let accent = ui.visuals().hyperlink_color;
     for c in cs {
-        ui.label(format!("constraint: {}", render_constraint(c)));
+        let (label, body) = describe_constraint(c);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.label(egui::RichText::new(format!("{label}:")).strong().color(accent));
+            ui.label(egui::RichText::new(body).monospace());
+        });
     }
 }
 
@@ -133,7 +145,7 @@ fn render_struct(
             IrStructMember::ComponentsOf { type_ref } => {
                 let key = (current_mod.to_string(), type_ref.clone());
                 if visited.contains(&key) {
-                    ui.label(format!("↳ COMPONENTS OF {type_ref}  (↺ recursive)"));
+                    leaf(ui, format!("↳ COMPONENTS OF {type_ref}  (↺ recursive)"));
                     continue;
                 }
                 match program.find_type(current_mod, type_ref) {
@@ -146,7 +158,11 @@ fn render_struct(
                             .default_open(true)
                             .show(ui, |ui| {
                                 if let Some(doc) = &td.doc {
-                                    ui.label(doc);
+                                    docfmt::render_egui(
+                                        ui,
+                                        doc,
+                                        &format!("compof-{current_mod}-{type_ref}"),
+                                    );
                                     ui.add_space(2.0);
                                 }
                                 render_body(ui, program, current_mod, path, &td.ty, &next);
@@ -160,7 +176,7 @@ fn render_struct(
         }
     }
     if s.extensible {
-        ui.label("…");
+        leaf(ui, "…");
     }
 }
 
@@ -176,7 +192,7 @@ fn render_choice(
         render_field(ui, program, current_mod, path, a, visited);
     }
     if c.extensible {
-        ui.label("…");
+        leaf(ui, "…");
     }
 }
 
@@ -218,20 +234,20 @@ fn render_nested(
 ) {
     match expand(program, current_mod, ty, visited) {
         None => {
-            ui.label(label);
+            leaf(ui, label);
         }
         Some(Expansion::Inline) => {
             let id = node_id(visited, path, label);
-            egui::CollapsingHeader::new(label).id_source(id).default_open(false).show(ui, |ui| {
+            egui::CollapsingHeader::new(label).id_source(&id).default_open(false).show(ui, |ui| {
                 if let Some(doc) = field_doc {
-                    ui.label(doc);
+                    docfmt::render_egui(ui, doc, &format!("field-{id}"));
                     ui.add_space(2.0);
                 }
                 render_body(ui, program, current_mod, path, ty, visited);
             });
         }
         Some(Expansion::Cycle { target_mod, target_name }) => {
-            ui.label(format!("{label}  ↺ recursive: {target_mod}.{target_name}"));
+            leaf(ui, format!("{label}  ↺ recursive: {target_mod}.{target_name}"));
         }
         Some(Expansion::Dangling { target_mod, target_name }) => {
             warn_leaf(ui, format!("{label}  (unresolved: {target_mod}.{target_name})"));
@@ -241,9 +257,9 @@ fn render_nested(
             // Re-find the resolved definition so we can show its own doc.
             let target_doc =
                 program.find_type(&target_mod, &target_name).and_then(|td| td.doc.as_deref());
-            egui::CollapsingHeader::new(label).id_source(id).default_open(false).show(ui, |ui| {
+            egui::CollapsingHeader::new(label).id_source(&id).default_open(false).show(ui, |ui| {
                 if let Some(doc) = field_doc {
-                    ui.label(doc);
+                    docfmt::render_egui(ui, doc, &format!("via-field-{id}"));
                     ui.add_space(2.0);
                 }
                 ui.label(
@@ -251,7 +267,7 @@ fn render_nested(
                 );
                 if let Some(doc) = target_doc {
                     ui.add_space(2.0);
-                    ui.label(doc);
+                    docfmt::render_egui(ui, doc, &format!("via-target-{id}"));
                     ui.add_space(2.0);
                 }
                 render_body(ui, program, &target_mod, path, target_ty, &next);

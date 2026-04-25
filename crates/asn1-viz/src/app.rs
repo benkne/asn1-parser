@@ -42,7 +42,8 @@ pub fn launch_with_options(initial_paths: Vec<PathBuf>, opts: LaunchOptions) -> 
         .with_inner_size([1200.0, 780.0])
         .with_title("asn1-tool — visualizer")
         .with_app_id("asn1-tool");
-    if let Some(icon) = opts.icon {
+    let icon = opts.icon.or_else(default_icon);
+    if let Some(icon) = icon {
         viewport = viewport.with_icon(std::sync::Arc::new(egui::IconData {
             rgba: icon.rgba,
             width: icon.width,
@@ -51,7 +52,49 @@ pub fn launch_with_options(initial_paths: Vec<PathBuf>, opts: LaunchOptions) -> 
     }
 
     let native = eframe::NativeOptions { viewport, ..Default::default() };
-    eframe::run_native("asn1-tool", native, Box::new(|_cc| Box::new(VizApp::new(initial_paths))))
+    eframe::run_native(
+        "asn1-tool",
+        native,
+        Box::new(|cc| {
+            install_symbol_fallback_font(&cc.egui_ctx);
+            Box::new(VizApp::new(initial_paths))
+        }),
+    )
+}
+
+/// Decode the embedded default window icon — the same star-with-`asn1 tool`
+/// glyph the standalone desktop binary used to load explicitly. Returning
+/// `None` on decode failure keeps the app launching with the platform default
+/// icon rather than aborting.
+fn default_icon() -> Option<Icon> {
+    const ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
+    match image::load_from_memory_with_format(ICON_PNG, image::ImageFormat::Png) {
+        Ok(img) => {
+            let rgba = img.to_rgba8();
+            let (width, height) = rgba.dimensions();
+            Some(Icon { rgba: rgba.into_raw(), width, height })
+        }
+        Err(_) => None,
+    }
+}
+
+/// Append a Unicode-symbol fallback font (DejaVu Sans Mono — covers the full
+/// Arrows block, Geometric Shapes, Misc Symbols, etc.) to both the
+/// proportional and monospace families. egui's bundled fonts ship only the
+/// Latin block, so without this fallback `→`, `↺`, `↳`, `⚠` and friends
+/// render as missing-glyph boxes.
+///
+/// The fallback is added *after* the default font, so Latin text still
+/// renders with egui's primary face — DejaVu Sans Mono only kicks in for
+/// codepoints the primary font doesn't cover.
+fn install_symbol_fallback_font(ctx: &egui::Context) {
+    const SYMBOL_FONT: &[u8] = include_bytes!("../assets/fonts/DejaVuSansMono.ttf");
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert("symbol_fallback".to_owned(), egui::FontData::from_static(SYMBOL_FONT));
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts.families.entry(family).or_default().push("symbol_fallback".to_owned());
+    }
+    ctx.set_fonts(fonts);
 }
 
 struct VizApp {
@@ -678,7 +721,7 @@ impl VizApp {
         ui.label(egui::RichText::new(format!("module: {root_mod}")).weak());
         if let Some(doc) = &root_td.doc {
             ui.add_space(4.0);
-            ui.label(doc);
+            crate::docfmt::render_egui(ui, doc, &format!("root-{root_mod}-{root_name}"));
         }
         ui.separator();
         ui.label(format!("{} ::= {}", root_td.name, render_type(&root_td.ty)));

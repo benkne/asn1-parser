@@ -12,7 +12,7 @@ use asn1_ir::{
     IrStruct, IrStructMember, IrType, IrTypeDef,
 };
 
-use crate::render_constraint;
+use crate::describe_constraint;
 
 /// Render the IR as a self-contained HTML document using `<details>` /
 /// `<summary>` for native click-to-expand, requiring no external assets.
@@ -120,7 +120,17 @@ summary:hover { background: var(--hover); }
 .ty   { color: var(--ty); }
 .note { color: var(--muted); font-style: italic; }
 .ext  { color: var(--ext); }
-.doc  { color: var(--muted); margin: .1rem 0 .3rem 1.5rem; white-space: pre-wrap; }
+.doc  { color: var(--muted); margin: .1rem 0 .3rem 1.5rem; }
+.doc-text { margin: .1rem 0; white-space: pre-wrap; }
+.doc-fields { display: grid; grid-template-columns: max-content 1fr; gap: .1rem .8rem; margin: .25rem 0 .35rem; }
+.doc-fields dt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--ty); font-weight: 600; }
+.doc-fields dd { margin: 0; color: var(--fg); }
+.doc-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin: .25rem 0 .35rem; }
+.doc-chip { font-size: .8rem; padding: .05rem .45rem; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); color: var(--fg); }
+.doc-chip b { color: var(--kw); font-weight: 600; margin-right: .25rem; }
+.doc-extra { margin: .15rem 0; }
+.doc-extra b { color: var(--kw); margin-right: .25rem; }
+.doc-ref { color: var(--ty); font-weight: 500; }
 .target { color: var(--muted); font-style: italic; margin: .1rem 0 .2rem 1.5rem; }
 .module > summary { font-weight: 700; font-size: 1.05rem; }
 .module { margin-top: .6rem; border-top: 1px solid var(--border); padding-top: .4rem; }
@@ -129,7 +139,9 @@ a.tyref:hover { background: var(--hover); }
 input[type=search] { width: 100%; padding: .4rem; box-sizing: border-box; margin-bottom: .75rem; font: inherit; background: var(--input-bg); color: var(--fg); border: 1px solid var(--input-border); border-radius: 4px; }
 .recursive { color: var(--recursive); font-style: italic; }
 .unresolved { color: var(--ext); font-style: italic; }
-.constraint { color: var(--muted); padding: .1rem 0 .1rem 1.25rem; }
+.constraint { color: var(--fg); padding: .1rem 0 .1rem 1.25rem; }
+.constraint-label { color: var(--kw); font-weight: 600; margin-right: .1rem; }
+.constraint-body { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .named { padding: .1rem 0 .1rem 1.25rem; }
 .warnings { margin: 0 0 1rem 0; border: 1px solid var(--ext); border-radius: 4px; padding: .25rem .5rem; background: var(--panel); }
 .warnings > summary { color: var(--ext); font-weight: 600; }
@@ -254,7 +266,7 @@ fn html_type_def(out: &mut String, program: &IrProgram, module: &str, td: &IrTyp
     }
     out.push_str(&format!("<details><summary>{summary}</summary>\n"));
     if let Some(doc) = &td.doc {
-        out.push_str(&format!("<div class=\"doc\">{}</div>\n", html_escape(doc)));
+        crate::docfmt::render_html(out, doc);
     }
     html_type_body(out, program, module, &td.ty, &visited);
     out.push_str("</details>\n");
@@ -369,10 +381,7 @@ fn html_struct(
                             html_type_ref_link(module, module, type_ref)
                         ));
                         if let Some(doc) = &td.doc {
-                            out.push_str(&format!(
-                                "<div class=\"doc\">{}</div>\n",
-                                html_escape(doc)
-                            ));
+                            crate::docfmt::render_html(out, doc);
                         }
                         html_type_body(out, program, module, &td.ty, &next);
                         out.push_str("</details>\n");
@@ -438,7 +447,7 @@ fn html_field(
     }
     out.push_str(&format!("<details><summary>{summary}</summary>\n"));
     if let Some(doc) = &f.doc {
-        out.push_str(&format!("<div class=\"doc\">{}</div>\n", html_escape(doc)));
+        crate::docfmt::render_html(out, doc);
     }
     html_type_body(out, program, module, &f.ty, visited);
     out.push_str("</details>\n");
@@ -479,7 +488,7 @@ fn html_resolve_reference(
                 html_type_ref_link(current_mod, target_mod, target_name)
             ));
             if let Some(doc) = &td.doc {
-                out.push_str(&format!("<div class=\"doc\">{}</div>\n", html_escape(doc)));
+                crate::docfmt::render_html(out, doc);
             }
             html_type_body(out, program, target_mod, &td.ty, &next);
         }
@@ -488,9 +497,10 @@ fn html_resolve_reference(
 
 fn html_constraints(out: &mut String, cs: &[IrConstraint]) {
     for c in cs {
+        let (label, body) = describe_constraint(c);
         out.push_str(&format!(
-            "<div class=\"constraint\">constraint: {}</div>\n",
-            html_escape(&render_constraint(c))
+            "<div class=\"constraint\"><span class=\"constraint-label\">{label}:</span> <span class=\"constraint-body\">{}</span></div>\n",
+            html_escape(&body)
         ));
     }
 }
@@ -589,7 +599,7 @@ fn type_anchor(module: &str, name: &str) -> String {
     out
 }
 
-fn html_escape(s: &str) -> String {
+pub(crate) fn html_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
@@ -755,7 +765,8 @@ mod tests {
         let html = export_html(&p);
         assert!(html.contains("unavailable"), "named number should appear");
         assert!(html.contains("131072"), "named number value should appear");
-        assert!(html.contains("constraint:"), "constraint row should appear");
+        assert!(html.contains("range:"), "range constraint row should appear with typed label");
+        assert!(html.contains("-131071 … 131072"), "range body uses ellipsis separator");
         assert!(html.contains("offset from reference position"), "doc should appear");
     }
 }

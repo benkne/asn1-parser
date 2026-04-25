@@ -16,5 +16,6 @@ asn1-codegen-cpp = { workspace = true }
 dark-light = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["png"] }
 rfd = { workspace = true }
 walkdir = { workspace = true }

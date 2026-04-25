@@ -44,27 +44,8 @@ fn main() -> Result<()> {
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), data_dir = %data_dir.display(), "starting asn1-tool");
 
-    let options = asn1_viz::LaunchOptions { icon: load_icon() };
-
-    asn1_viz::launch_with_options(cli.inputs, options).map_err(|e| {
+    asn1_viz::launch(cli.inputs).map_err(|e| {
         tracing::error!(error = %e, "eframe exited with error");
         anyhow::anyhow!("visualizer failed: {e}")
     })
-}
-
-/// Decode the embedded window icon. Returns `None` if decoding fails — the app
-/// still launches, just without a custom taskbar icon.
-fn load_icon() -> Option<asn1_viz::Icon> {
-    const ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
-    match image::load_from_memory_with_format(ICON_PNG, image::ImageFormat::Png) {
-        Ok(img) => {
-            let rgba = img.to_rgba8();
-            let (width, height) = rgba.dimensions();
-            Some(asn1_viz::Icon { rgba: rgba.into_raw(), width, height })
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "failed to decode window icon; continuing without one");
-            None
-        }
-    }
 }

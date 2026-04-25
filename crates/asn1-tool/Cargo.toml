@@ -16,9 +16,6 @@ path = "src/main.rs"
 asn1-viz = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
-eframe = { workspace = true }
-egui = { workspace = true }
-image = { version = "0.25", default-features = false, features = ["png"] }
 dirs = "5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
