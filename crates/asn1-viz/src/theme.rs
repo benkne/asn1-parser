@@ -27,6 +27,27 @@ impl Theme {
         }
     }
 
+    /// Stable lowercase key used when persisting the theme to disk and
+    /// matching the `data-theme` attribute used by the HTML export.
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Theme::Light => "light",
+            Theme::Dark => "dark",
+            Theme::Grey => "grey",
+        }
+    }
+
+    /// Parse a stored theme key. Accepts `gray` as a synonym for `grey`. Whitespace
+    /// is trimmed and comparison is case-insensitive.
+    pub(crate) fn from_key(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "light" => Some(Theme::Light),
+            "dark" => Some(Theme::Dark),
+            "grey" | "gray" => Some(Theme::Grey),
+            _ => None,
+        }
+    }
+
     pub(crate) fn visuals(self) -> egui::Visuals {
         match self {
             Theme::Light => egui::Visuals::light(),

@@ -124,11 +124,11 @@ summary:hover { background: var(--hover); }
 .doc-text { margin: .1rem 0; white-space: pre-wrap; }
 .doc-fields { display: grid; grid-template-columns: max-content 1fr; gap: .1rem .8rem; margin: .25rem 0 .35rem; }
 .doc-fields dt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--ty); font-weight: 600; }
-.doc-fields dd { margin: 0; color: var(--fg); }
+.doc-fields dd { margin: 0; color: var(--fg); white-space: pre-wrap; }
 .doc-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin: .25rem 0 .35rem; }
 .doc-chip { font-size: .8rem; padding: .05rem .45rem; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); color: var(--fg); }
 .doc-chip b { color: var(--kw); font-weight: 600; margin-right: .25rem; }
-.doc-extra { margin: .15rem 0; }
+.doc-extra { margin: .15rem 0; white-space: pre-wrap; }
 .doc-extra b { color: var(--kw); margin-right: .25rem; }
 .doc-ref { color: var(--ty); font-weight: 500; }
 .target { color: var(--muted); font-style: italic; margin: .1rem 0 .2rem 1.5rem; }

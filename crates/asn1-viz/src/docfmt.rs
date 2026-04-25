@@ -102,17 +102,21 @@ pub(crate) fn parse(doc: &str) -> DocBlock {
             continue;
         }
 
-        // Continuation line.
+        // Continuation line. List-item starts (`- foo`, `* foo`, `1. foo`)
+        // are joined with a hard newline so bullet/numbered lists stay
+        // visually separated; everything else joins with a space so prose
+        // wrapped at column 80 in the source still re-flows naturally.
+        let join: char = if is_list_item_start(trimmed) { '\n' } else { ' ' };
         match &mut current {
             Some((_, body)) => {
                 if !body.is_empty() {
-                    body.push(' ');
+                    body.push(join);
                 }
                 body.push_str(trimmed);
             }
             None => {
                 if !leading_para.is_empty() {
-                    leading_para.push(' ');
+                    leading_para.push(join);
                 }
                 leading_para.push_str(trimmed);
             }
@@ -212,6 +216,22 @@ fn match_tag(line: &str) -> Option<TagMatch<'_>> {
 
 fn strip_optional_colon(s: &str) -> &str {
     s.strip_prefix(':').map(str::trim_start).unwrap_or(s)
+}
+
+/// `true` when `line` opens a markdown-style list item — `- foo`, `* foo`, or
+/// `1. foo`. Used by the continuation logic so bullet lists keep their
+/// per-item line breaks instead of collapsing into a wall of text.
+fn is_list_item_start(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    if bytes.len() >= 2 && (bytes[0] == b'-' || bytes[0] == b'*') && bytes[1] == b' ' {
+        return true;
+    }
+    // Numbered: one-or-more digits, then `.`, then a space.
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    i > 0 && i + 1 < bytes.len() && bytes[i] == b'.' && bytes[i + 1] == b' '
 }
 
 // ---------------------------------------------------------------------------
@@ -570,6 +590,33 @@ mod tests {
         assert!(out.contains(r#"class="doc-chips""#));
         assert!(out.contains(r#"class="doc-chip doc-chip-category""#));
         assert!(out.contains(r#"class="doc-chip doc-chip-revision""#));
+    }
+
+    #[test]
+    fn dash_bullet_continuations_keep_newlines() {
+        let b = parse(
+            "@note: header line.\nThe value shall be set to:\n- 1 - foo\n- 2 - bar\n- 3 - baz",
+        );
+        assert_eq!(
+            b.intro,
+            vec!["header line. The value shall be set to:\n- 1 - foo\n- 2 - bar\n- 3 - baz"
+                .to_string()]
+        );
+    }
+
+    #[test]
+    fn numbered_list_continuations_keep_newlines() {
+        let b = parse("@note: choices:\n1. first\n2. second\n3. third");
+        assert_eq!(b.intro, vec!["choices:\n1. first\n2. second\n3. third".to_string()]);
+    }
+
+    #[test]
+    fn list_item_continuation_lines_still_join_with_space() {
+        // A line that is NOT a list item, following one that is, should be
+        // joined to the previous item with a space — it's prose continuation
+        // of that item, not a new bullet.
+        let b = parse("@note: header.\n- item one\n  with continuation\n- item two");
+        assert_eq!(b.intro, vec!["header.\n- item one with continuation\n- item two".to_string()]);
     }
 
     #[test]

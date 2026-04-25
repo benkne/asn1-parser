@@ -44,7 +44,9 @@ fn main() -> Result<()> {
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), data_dir = %data_dir.display(), "starting asn1-tool");
 
-    asn1_viz::launch(cli.inputs).map_err(|e| {
+    let opts =
+        asn1_viz::LaunchOptions { icon: None, theme_store_path: Some(data_dir.join("theme.txt")) };
+    asn1_viz::launch_with_options(cli.inputs, opts).map_err(|e| {
         tracing::error!(error = %e, "eframe exited with error");
         anyhow::anyhow!("visualizer failed: {e}")
     })

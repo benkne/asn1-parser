@@ -26,6 +26,10 @@ pub struct Icon {
 pub struct LaunchOptions {
     /// Window / taskbar icon. `None` keeps the platform default.
     pub icon: Option<Icon>,
+    /// File path to load/store the user's theme choice. `None` disables
+    /// persistence — the CLI's transient `visualize` launches use this so
+    /// they don't write user state.
+    pub theme_store_path: Option<PathBuf>,
 }
 
 /// Launch the visualizer UI with default options. `initial_paths` are loaded
@@ -52,12 +56,13 @@ pub fn launch_with_options(initial_paths: Vec<PathBuf>, opts: LaunchOptions) -> 
     }
 
     let native = eframe::NativeOptions { viewport, ..Default::default() };
+    let theme_store = opts.theme_store_path;
     eframe::run_native(
         "asn1-tool",
         native,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             install_symbol_fallback_font(&cc.egui_ctx);
-            Box::new(VizApp::new(initial_paths))
+            Box::new(VizApp::new(initial_paths, theme_store))
         }),
     )
 }
@@ -105,6 +110,9 @@ struct VizApp {
     /// Currently-focused root type as `(module, type_name)`.
     root: Option<(String, String)>,
     theme: Theme,
+    /// Where to persist `theme` between runs, if anywhere. `None` keeps the
+    /// theme transient (CLI launches).
+    theme_store_path: Option<PathBuf>,
     about_open: bool,
     diagnostics: Vec<IrDiagnostic>,
     diagnostics_open: bool,
@@ -127,12 +135,18 @@ struct VizApp {
 }
 
 impl VizApp {
-    fn new(initial_paths: Vec<PathBuf>) -> Self {
+    fn new(initial_paths: Vec<PathBuf>, theme_store_path: Option<PathBuf>) -> Self {
+        let theme = theme_store_path
+            .as_deref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| Theme::from_key(&s))
+            .unwrap_or_else(Theme::system_default);
         let mut app = Self {
             program: None,
             filter: String::new(),
             root: None,
-            theme: Theme::system_default(),
+            theme,
+            theme_store_path,
             about_open: false,
             diagnostics: Vec::new(),
             diagnostics_open: false,
@@ -147,6 +161,15 @@ impl VizApp {
             app.replace_with(initial_paths);
         }
         app
+    }
+
+    /// Best-effort write of the current theme to `theme_store_path`. Errors
+    /// (no path configured, parent dir missing, read-only filesystem) are
+    /// silently swallowed — theme persistence is not critical and shouldn't
+    /// disrupt the UI.
+    fn save_theme(&self) {
+        let Some(path) = &self.theme_store_path else { return };
+        let _ = std::fs::write(path, self.theme.key());
     }
 
     /// Parse `paths` as the *complete* source set and replace current state.
@@ -369,6 +392,14 @@ impl eframe::App for VizApp {
                         self.add_directory();
                     }
                     ui.separator();
+                    if ui.add_enabled(has_program, egui::Button::new("Close")).clicked() {
+                        ui.close_menu();
+                        self.clear();
+                    }
+                });
+
+                ui.menu_button("Tools", |ui| {
+                    let has_program = self.program.is_some();
                     if ui
                         .add_enabled(has_program, egui::Button::new("Export HTML…"))
                         .on_hover_text("Save the current tree as a standalone HTML file")
@@ -378,14 +409,6 @@ impl eframe::App for VizApp {
                         self.export_html();
                     }
                     ui.separator();
-                    if ui.add_enabled(has_program, egui::Button::new("Close")).clicked() {
-                        ui.close_menu();
-                        self.clear();
-                    }
-                });
-
-                ui.menu_button("Tools", |ui| {
-                    let has_program = self.program.is_some();
                     if ui
                         .add_enabled(has_program, egui::Button::new("Generate Java…"))
                         .on_hover_text(
@@ -412,6 +435,7 @@ impl eframe::App for VizApp {
                     for t in [Theme::Light, Theme::Dark, Theme::Grey] {
                         if ui.radio(self.theme == t, t.label()).clicked() {
                             self.theme = t;
+                            self.save_theme();
                             ui.close_menu();
                         }
                     }
