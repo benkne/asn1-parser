@@ -19,11 +19,11 @@ repository = "https://github.com/benkne/asn1-decoder"
 authors = ["Benedikt Kneissl"]
 
 [workspace.dependencies]
-asn1-parser = { path = "crates/asn1-parser", version = "0.1.0" }
-asn1-ir = { path = "crates/asn1-ir", version = "0.1.0" }
-asn1-codegen-java = { path = "crates/asn1-codegen-java", version = "0.1.0" }
-asn1-codegen-cpp = { path = "crates/asn1-codegen-cpp", version = "0.1.0" }
-asn1-viz = { path = "crates/asn1-viz", version = "0.1.0" }
+asn1-parser = { path = "crates/asn1-parser", version = "1.0.0" }
+asn1-ir = { path = "crates/asn1-ir", version = "1.0.0" }
+asn1-codegen-java = { path = "crates/asn1-codegen-java", version = "1.0.0" }
+asn1-codegen-cpp = { path = "crates/asn1-codegen-cpp", version = "1.0.0" }
+asn1-viz = { path = "crates/asn1-viz", version = "1.0.0" }
 
 anyhow = "1"
 thiserror = "1"
