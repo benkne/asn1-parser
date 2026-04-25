@@ -6,6 +6,7 @@ members = [
     "crates/asn1-codegen-java",
     "crates/asn1-codegen-cpp",
     "crates/asn1-viz",
+    "crates/asn1-tool",
     "crates/asn1-cli",
 ]
 
@@ -40,3 +41,6 @@ dark-light = "1"
 lto = "thin"
 codegen-units = 1
 strip = true
+# Abort-on-panic keeps the binary smaller and removes unwind tables; the
+# asn1-viz panic hook still fires and writes a crash log before abort.
+panic = "abort"

@@ -97,15 +97,28 @@ asn1-decoder/
 │   │       └── poim_codegen.rs   # golden-style check of POIM output
 │   │
 │   ├── asn1-viz/                 # interactive tree viewer (egui) + HTML export
-│   │   ├── Cargo.toml
+│   │   ├── Cargo.toml            # library crate — no binary
 │   │   ├── src/
-│   │   │   ├── lib.rs            # re-exports `launch` and `export_html`
+│   │   │   ├── lib.rs            # re-exports `launch`, `launch_with_options`,
+│   │   │   │                     # `LaunchOptions`, `Icon`, and `export_html`
 │   │   │   ├── app.rs            # eframe::App — menus, picker, drill-down
 │   │   │   ├── tree.rs           # click-to-expand renderer shared by the UI
 │   │   │   ├── loader.rs         # walks inputs, parses, lowers to IR
 │   │   │   ├── theme.rs          # Light / Dark / Grey palettes
 │   │   │   ├── html.rs           # standalone HTML exporter
 │   │   │   └── test_fixtures.rs  # shared helpers for unit tests
+│   │
+│   ├── asn1-tool/                # standalone desktop binary (`asn1-tool`)
+│   │   ├── Cargo.toml
+│   │   ├── build.rs              # embeds Windows icon/manifest/version info
+│   │   ├── assets/
+│   │   │   ├── icon.png          # runtime window icon (cross-platform)
+│   │   │   ├── icon.ico          # Windows resource icon
+│   │   │   └── app.manifest      # DPI-aware, longPathAware, UTF-8 ACP
+│   │   └── src/
+│   │       ├── main.rs           # windows_subsystem gate + launch hand-off
+│   │       ├── paths.rs          # portable-mode vs OS data-dir resolver
+│   │       └── logging.rs        # tracing subscriber + panic crash log
 │   │
 │   └── asn1-cli/                 # binary crate — the user-facing tool
 │       ├── Cargo.toml            # produces the `asn1-decoder` binary
@@ -128,15 +141,18 @@ intentionally no workspace-level `tests/` directory today.
 ### 2.1 Dependency direction
 
 ```
-asn1-cli ──► asn1-viz ──► asn1-ir ──► asn1-parser
-         └─► asn1-codegen-java ──► asn1-ir ──► asn1-parser
+asn1-tool ──► asn1-viz ──► asn1-ir ──► asn1-parser
+asn1-cli  ──► asn1-viz ──► asn1-ir ──► asn1-parser
+          └─► asn1-codegen-{java,cpp} ──► asn1-ir ──► asn1-parser
 ```
 
 A crate **must not** depend on anything to its left in the diagram. `asn1-parser`
 has no intra-workspace dependencies. `asn1-ir` is the single source of truth
-consumed by both the code generator and the visualizer. `asn1-viz` additionally
+consumed by both the code generators and the visualizer. `asn1-viz` additionally
 depends on `asn1-parser` because it parses inputs itself (the GUI's File menu
-has to reparse from disk, not take a pre-built IR).
+has to reparse from disk, not take a pre-built IR). `asn1-tool` is a thin
+desktop wrapper: it owns window-icon loading, tracing, the panic hook, and
+portable-mode path resolution; all actual UI code stays in `asn1-viz`.
 
 ---
 
@@ -341,11 +357,14 @@ Windows.
 
 - Semantic versioning at the workspace level; all crates share one version
   (`0.1.0` today).
-- `release.yml` triggers on `v*` tags and attaches prebuilt binaries for
-  `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`, and
-  `aarch64-apple-darwin`.
-- Breaking changes to generated Java (renames, package layout) require a major
-  bump and a migration note in the release body.
+- `release.yml` triggers on `v*` tags and attaches prebuilt binaries:
+  - `asn1-decoder` (CLI) on `x86_64-pc-windows-msvc`,
+    `x86_64-unknown-linux-gnu`, and `aarch64-apple-darwin`.
+  - `asn1-tool` (desktop GUI) on `x86_64-pc-windows-msvc` and
+    `x86_64-unknown-linux-gnu`, in both system and portable flavors (see
+    `PORTABLE.md`). Linux builds target ubuntu-22.04 → glibc 2.35 baseline.
+- Breaking changes to generated Java or C++ (renames, package layout) require
+  a major bump and a migration note in the release body.
 
 ---
 

@@ -16,8 +16,11 @@ cargo run -p asn1-cli -- check examples/poim
 cargo run -p asn1-cli -- generate examples/poim --out target/java \
     --java-package-prefix com.example
 
-# Launch the interactive tree viewer
+# Launch the interactive tree viewer (via CLI)
 cargo run -p asn1-cli -- visualize examples/poim
+
+# Or launch the standalone desktop binary
+cargo run -p asn1-tool -- examples/poim
 
 # Export a standalone HTML tree (no window)
 cargo run -p asn1-cli -- visualize examples/poim --export tree.html
@@ -47,9 +50,23 @@ crates/
   asn1-parser/         ASN.1 lexer + grammar → concrete syntax tree
   asn1-ir/             Typed intermediate representation + resolver
   asn1-codegen-java/   IR → Java source files
-  asn1-viz/            egui tree viewer + standalone HTML export
+  asn1-codegen-cpp/    IR → C++ header files
+  asn1-viz/            egui tree viewer + standalone HTML export (library)
+  asn1-tool/           Standalone desktop binary — `asn1-tool(.exe)`
   asn1-cli/            User-facing binary (`asn1-decoder`)
 ```
+
+## Prebuilt binaries
+
+Each release tag (`v*`) attaches prebuilt archives to the GitHub release:
+
+- `asn1-decoder-<tag>-<target>.{zip,tar.gz}` — the CLI (parse / generate /
+  headless visualize + HTML export).
+- `asn1-tool-<tag>-<target>.{zip,tar.gz}` — the standalone desktop GUI. Ships
+  with an embedded icon and manifest on Windows; no installer needed.
+- `asn1-tool-<tag>-<target>-portable.{zip,tar.gz}` — same binary plus a
+  `portable.txt` marker that forces state (logs, crash dumps) next to the
+  executable. See [`PORTABLE.md`](PORTABLE.md) for details.
 
 ## Examples
 

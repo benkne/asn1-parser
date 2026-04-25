@@ -23,7 +23,7 @@ mod tree;
 #[cfg(test)]
 mod test_fixtures;
 
-pub use app::launch;
+pub use app::{launch, launch_with_options, Icon, LaunchOptions};
 pub use html::export_html;
 
 use asn1_ir::IrConstraint;

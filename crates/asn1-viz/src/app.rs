@@ -12,17 +12,46 @@ use crate::theme::Theme;
 use crate::tree::render_body;
 use crate::WARN_COLOR;
 
-/// Launch the visualizer UI. `initial_paths` are loaded at startup (same as
-/// if the user imported them via File → Open); pass an empty slice to open
-/// an empty window. Blocks until the window is closed.
+/// Raw RGBA window-icon bytes. Kept as a plain struct so callers don't need
+/// to depend on `egui` directly.
+pub struct Icon {
+    pub rgba: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Knobs that the standalone `asn1-viz` binary needs to customize but that
+/// the CLI's inline `visualize` subcommand leaves at defaults.
+#[derive(Default)]
+pub struct LaunchOptions {
+    /// Window / taskbar icon. `None` keeps the platform default.
+    pub icon: Option<Icon>,
+}
+
+/// Launch the visualizer UI with default options. `initial_paths` are loaded
+/// at startup (same as if the user imported them via File → Open); pass an
+/// empty slice to open an empty window. Blocks until the window is closed.
 pub fn launch(initial_paths: Vec<PathBuf>) -> eframe::Result<()> {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 780.0])
-            .with_title("asn1-tool — visualizer"),
-        ..Default::default()
-    };
-    eframe::run_native("asn1-tool", options, Box::new(|_cc| Box::new(VizApp::new(initial_paths))))
+    launch_with_options(initial_paths, LaunchOptions::default())
+}
+
+/// Like [`launch`] but lets the caller override window-level options such as
+/// the taskbar icon. Used by the `asn1-tool` desktop binary.
+pub fn launch_with_options(initial_paths: Vec<PathBuf>, opts: LaunchOptions) -> eframe::Result<()> {
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([1200.0, 780.0])
+        .with_title("asn1-tool — visualizer")
+        .with_app_id("asn1-tool");
+    if let Some(icon) = opts.icon {
+        viewport = viewport.with_icon(std::sync::Arc::new(egui::IconData {
+            rgba: icon.rgba,
+            width: icon.width,
+            height: icon.height,
+        }));
+    }
+
+    let native = eframe::NativeOptions { viewport, ..Default::default() };
+    eframe::run_native("asn1-tool", native, Box::new(|_cc| Box::new(VizApp::new(initial_paths))))
 }
 
 struct VizApp {
@@ -142,8 +171,8 @@ impl VizApp {
         self.load_errors_open = false;
     }
 
-    fn pick_file(title: &str) -> Option<PathBuf> {
-        rfd::FileDialog::new().add_filter("ASN.1 source", &["asn"]).set_title(title).pick_file()
+    fn pick_files(title: &str) -> Option<Vec<PathBuf>> {
+        rfd::FileDialog::new().add_filter("ASN.1 source", &["asn"]).set_title(title).pick_files()
     }
 
     fn pick_folder(title: &str) -> Option<PathBuf> {
@@ -151,8 +180,8 @@ impl VizApp {
     }
 
     fn import_file(&mut self) {
-        if let Some(path) = Self::pick_file("Open ASN.1 file") {
-            self.replace_with(vec![path]);
+        if let Some(paths) = Self::pick_files("Open ASN.1 file(s)") {
+            self.replace_with(paths);
         }
     }
 
@@ -163,8 +192,8 @@ impl VizApp {
     }
 
     fn add_file(&mut self) {
-        if let Some(path) = Self::pick_file("Add ASN.1 file") {
-            self.append_paths(vec![path]);
+        if let Some(paths) = Self::pick_files("Add ASN.1 file(s)") {
+            self.append_paths(paths);
         }
     }
 
@@ -326,9 +355,7 @@ impl eframe::App for VizApp {
                     }
                     if ui
                         .add_enabled(has_program, egui::Button::new("Generate C++…"))
-                        .on_hover_text(
-                            "Generate C++ header files from the loaded ASN.1 modules",
-                        )
+                        .on_hover_text("Generate C++ header files from the loaded ASN.1 modules")
                         .clicked()
                     {
                         ui.close_menu();
@@ -440,7 +467,7 @@ impl eframe::App for VizApp {
             .open(&mut diag_open)
             .collapsible(false)
             .resizable(true)
-            .default_width(820.0)
+            .default_width(1000.0)
             .default_height(560.0)
             .default_pos(egui::pos2(240.0, 120.0))
             .show(ctx, |ui| {

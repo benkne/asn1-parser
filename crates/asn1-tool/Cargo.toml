@@ -1,0 +1,28 @@
+[package]
+name = "asn1-tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Standalone asn1-tool desktop application"
+
+[[bin]]
+name = "asn1-tool"
+path = "src/main.rs"
+
+[dependencies]
+asn1-viz = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+eframe = { workspace = true }
+egui = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["png"] }
+dirs = "5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
