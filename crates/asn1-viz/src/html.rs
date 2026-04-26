@@ -124,6 +124,12 @@ summary:hover { background: var(--hover); }
 .doc-text { margin: .1rem 0; white-space: pre-wrap; }
 .doc-fields { display: grid; grid-template-columns: max-content 1fr; gap: .1rem .8rem; margin: .25rem 0 .35rem; }
 .doc-fields dt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--ty); font-weight: 600; }
+/* Required keeps the full type-accent (bold, saturated). Optional fades
+   heavily toward muted and drops weight so the two read as obviously
+   different at a glance — the contrast scales correctly across themes
+   because both --ty and --muted are theme-defined. */
+.doc-fields dt.req { color: var(--ty); font-weight: 700; }
+.doc-fields dt.opt { color: color-mix(in srgb, var(--ty) 25%, var(--muted) 75%); font-weight: 500; }
 .doc-fields dd { margin: 0; color: var(--fg); white-space: pre-wrap; }
 .doc-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin: .25rem 0 .35rem; }
 .doc-chip { font-size: .8rem; padding: .05rem .45rem; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); color: var(--fg); }
@@ -266,7 +272,7 @@ fn html_type_def(out: &mut String, program: &IrProgram, module: &str, td: &IrTyp
     }
     out.push_str(&format!("<details><summary>{summary}</summary>\n"));
     if let Some(doc) = &td.doc {
-        crate::docfmt::render_html(out, doc);
+        crate::docfmt::render_html(out, doc, &crate::tree::required_field_names(&td.ty));
     }
     html_type_body(out, program, module, &td.ty, &visited);
     out.push_str("</details>\n");
@@ -381,7 +387,11 @@ fn html_struct(
                             html_type_ref_link(module, module, type_ref)
                         ));
                         if let Some(doc) = &td.doc {
-                            crate::docfmt::render_html(out, doc);
+                            crate::docfmt::render_html(
+                                out,
+                                doc,
+                                &crate::tree::required_field_names(&td.ty),
+                            );
                         }
                         html_type_body(out, program, module, &td.ty, &next);
                         out.push_str("</details>\n");
@@ -447,7 +457,7 @@ fn html_field(
     }
     out.push_str(&format!("<details><summary>{summary}</summary>\n"));
     if let Some(doc) = &f.doc {
-        crate::docfmt::render_html(out, doc);
+        crate::docfmt::render_html(out, doc, &crate::tree::required_field_names(&f.ty));
     }
     html_type_body(out, program, module, &f.ty, visited);
     out.push_str("</details>\n");
@@ -488,7 +498,7 @@ fn html_resolve_reference(
                 html_type_ref_link(current_mod, target_mod, target_name)
             ));
             if let Some(doc) = &td.doc {
-                crate::docfmt::render_html(out, doc);
+                crate::docfmt::render_html(out, doc, &crate::tree::required_field_names(&td.ty));
             }
             html_type_body(out, program, target_mod, &td.ty, &next);
         }

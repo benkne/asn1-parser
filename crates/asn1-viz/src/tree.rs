@@ -36,6 +36,30 @@ fn warn_leaf(ui: &mut egui::Ui, text: impl Into<String>) {
     leaf(ui, egui::RichText::new(text.into()).color(WARN_COLOR));
 }
 
+/// Names of structural members that are non-optional, used by the doc grid
+/// to colour required `@field` rows in a stronger blue. CHOICE alternatives
+/// don't carry `OPTIONAL` semantics in ASN.1, so they're treated as required
+/// for this purpose. Returns an empty list for primitives — there is nothing
+/// to highlight.
+pub(crate) fn required_field_names(ty: &IrType) -> Vec<&str> {
+    match ty {
+        IrType::Sequence(s) | IrType::Set(s) => s
+            .members
+            .iter()
+            .filter_map(|m| match m {
+                IrStructMember::Field(f)
+                    if matches!(f.optionality, IrOptionality::Required) =>
+                {
+                    Some(f.name.as_str())
+                }
+                _ => None,
+            })
+            .collect(),
+        IrType::Choice(c) => c.alternatives.iter().map(|a| a.name.as_str()).collect(),
+        _ => Vec::new(),
+    }
+}
+
 pub(crate) fn render_body(
     ui: &mut egui::Ui,
     program: &IrProgram,
@@ -93,7 +117,12 @@ pub(crate) fn render_body(
             let mut next = visited.to_vec();
             next.push(key);
             if let Some(doc) = &td.doc {
-                docfmt::render_egui(ui, doc, &format!("ref-{target_mod}-{name}"));
+                docfmt::render_egui(
+                    ui,
+                    doc,
+                    &format!("ref-{target_mod}-{name}"),
+                    &required_field_names(&td.ty),
+                );
                 ui.add_space(2.0);
             }
             render_body(ui, program, &target_mod, path, &td.ty, &next);
@@ -162,6 +191,7 @@ fn render_struct(
                                         ui,
                                         doc,
                                         &format!("compof-{current_mod}-{type_ref}"),
+                                        &required_field_names(&td.ty),
                                     );
                                     ui.add_space(2.0);
                                 }
@@ -240,7 +270,12 @@ fn render_nested(
             let id = node_id(visited, path, label);
             egui::CollapsingHeader::new(label).id_source(&id).default_open(false).show(ui, |ui| {
                 if let Some(doc) = field_doc {
-                    docfmt::render_egui(ui, doc, &format!("field-{id}"));
+                    docfmt::render_egui(
+                        ui,
+                        doc,
+                        &format!("field-{id}"),
+                        &required_field_names(ty),
+                    );
                     ui.add_space(2.0);
                 }
                 render_body(ui, program, current_mod, path, ty, visited);
@@ -259,7 +294,12 @@ fn render_nested(
                 program.find_type(&target_mod, &target_name).and_then(|td| td.doc.as_deref());
             egui::CollapsingHeader::new(label).id_source(&id).default_open(false).show(ui, |ui| {
                 if let Some(doc) = field_doc {
-                    docfmt::render_egui(ui, doc, &format!("via-field-{id}"));
+                    docfmt::render_egui(
+                        ui,
+                        doc,
+                        &format!("via-field-{id}"),
+                        &required_field_names(target_ty),
+                    );
                     ui.add_space(2.0);
                 }
                 ui.label(
@@ -267,7 +307,12 @@ fn render_nested(
                 );
                 if let Some(doc) = target_doc {
                     ui.add_space(2.0);
-                    docfmt::render_egui(ui, doc, &format!("via-target-{id}"));
+                    docfmt::render_egui(
+                        ui,
+                        doc,
+                        &format!("via-target-{id}"),
+                        &required_field_names(target_ty),
+                    );
                     ui.add_space(2.0);
                 }
                 render_body(ui, program, &target_mod, path, target_ty, &next);

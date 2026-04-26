@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use asn1_codegen_cpp::{generate as cpp_generate, CppOptions};
 use asn1_codegen_java::{generate as java_generate, JavaOptions};
-use asn1_ir::{render_type, IrDiagnostic, IrItem, IrProgram};
+use asn1_ir::{render_type, IrDiagnostic, IrItem, IrProgram, IrStructMember, IrType};
 
 use crate::loader::load_program;
 use crate::theme::Theme;
@@ -107,6 +107,9 @@ struct VizApp {
     /// via File → Open).
     program: Option<IrProgram>,
     filter: String,
+    /// When true, the picker filter also matches against doc comments,
+    /// field names, enum item names, etc. — not just top-level type names.
+    filter_in_body: bool,
     /// Currently-focused root type as `(module, type_name)`.
     root: Option<(String, String)>,
     theme: Theme,
@@ -144,6 +147,7 @@ impl VizApp {
         let mut app = Self {
             program: None,
             filter: String::new(),
+            filter_in_body: false,
             root: None,
             theme,
             theme_store_path,
@@ -600,9 +604,35 @@ impl eframe::App for VizApp {
 
         egui::SidePanel::left("picker").resizable(true).default_width(360.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("filter:");
-                ui.text_edit_singleline(&mut self.filter);
+                let stroke = ui.visuals().widgets.inactive.bg_stroke;
+                let rounding = ui.visuals().widgets.inactive.rounding;
+                let fill = ui.visuals().extreme_bg_color;
+                egui::Frame::none()
+                    .fill(fill)
+                    .stroke(stroke)
+                    .rounding(rounding)
+                    .inner_margin(egui::Margin::symmetric(4.0, 2.0))
+                    .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                let btn = ui.add_enabled(
+                                    !self.filter.is_empty(),
+                                    egui::Button::new("✕").frame(false),
+                                );
+                                if btn.clicked() {
+                                    self.filter.clear();
+                                }
+                                ui.add_sized(
+                                    [ui.available_width(), ui.spacing().interact_size.y],
+                                    egui::TextEdit::singleline(&mut self.filter).frame(false),
+                                );
+                            },
+                        );
+                    });
             });
+            ui.checkbox(&mut self.filter_in_body, "search all");
             ui.separator();
             egui::ScrollArea::both().show(ui, |ui| {
                 self.show_picker(ui);
@@ -628,6 +658,7 @@ impl VizApp {
         };
 
         let filter = self.filter.to_lowercase();
+        let in_body = self.filter_in_body;
         // Build (module_name, matching types) groups in source order so each
         // module becomes its own collapsible.
         let groups: Vec<(String, Vec<String>)> = program
@@ -638,14 +669,32 @@ impl VizApp {
                     .items
                     .iter()
                     .filter_map(|i| match i {
-                        IrItem::Type(t) => Some(t.name.clone()),
+                        IrItem::Type(t) => Some(t),
                         _ => None,
                     })
-                    .filter(|n| {
-                        filter.is_empty()
-                            || n.to_lowercase().contains(&filter)
+                    .filter(|t| {
+                        if filter.is_empty() {
+                            return true;
+                        }
+                        if t.name.to_lowercase().contains(&filter)
                             || m.name.to_lowercase().contains(&filter)
+                        {
+                            return true;
+                        }
+                        if in_body {
+                            if t.doc
+                                .as_deref()
+                                .is_some_and(|d| d.to_lowercase().contains(&filter))
+                            {
+                                return true;
+                            }
+                            if type_body_contains(&t.ty, &filter) {
+                                return true;
+                            }
+                        }
+                        false
                     })
+                    .map(|t| t.name.clone())
                     .collect();
                 (m.name.clone(), types)
             })
@@ -745,7 +794,12 @@ impl VizApp {
         ui.label(egui::RichText::new(format!("module: {root_mod}")).weak());
         if let Some(doc) = &root_td.doc {
             ui.add_space(4.0);
-            crate::docfmt::render_egui(ui, doc, &format!("root-{root_mod}-{root_name}"));
+            crate::docfmt::render_egui(
+                ui,
+                doc,
+                &format!("root-{root_mod}-{root_name}"),
+                &crate::tree::required_field_names(&root_td.ty),
+            );
         }
         ui.separator();
         ui.label(format!("{} ::= {}", root_td.name, render_type(&root_td.ty)));
@@ -754,5 +808,37 @@ impl VizApp {
         let visited = vec![(root_mod.clone(), root_name.clone())];
         let ty = root_td.ty.clone();
         render_body(ui, program, &root_mod, &[], &ty, &visited);
+    }
+}
+
+/// Recursive case-insensitive substring match against a type's body — field
+/// names, alternative names, enum item names, named-number labels, plus their
+/// doc comments. `needle` must already be lower-cased. References are matched
+/// by their rendered name only (no follow-through, to avoid cycles).
+fn type_body_contains(ty: &IrType, needle: &str) -> bool {
+    let str_hit = |s: &str| s.to_lowercase().contains(needle);
+    let opt_hit = |s: &Option<String>| s.as_deref().is_some_and(str_hit);
+    match ty {
+        IrType::Sequence(s) | IrType::Set(s) => s.members.iter().any(|m| match m {
+            IrStructMember::Field(f) => {
+                str_hit(&f.name) || opt_hit(&f.doc) || type_body_contains(&f.ty, needle)
+            }
+            IrStructMember::ComponentsOf { type_ref } => str_hit(type_ref),
+        }),
+        IrType::Choice(c) => c.alternatives.iter().any(|f| {
+            str_hit(&f.name) || opt_hit(&f.doc) || type_body_contains(&f.ty, needle)
+        }),
+        IrType::Enumerated { items, .. } => {
+            items.iter().any(|i| str_hit(&i.name) || opt_hit(&i.doc))
+        }
+        IrType::Integer { named_numbers, .. } => named_numbers.iter().any(|(n, _)| str_hit(n)),
+        IrType::BitString { named_bits, .. } => named_bits.iter().any(|(n, _)| str_hit(n)),
+        IrType::SequenceOf { element, .. } | IrType::SetOf { element, .. } => {
+            type_body_contains(element, needle)
+        }
+        IrType::Reference { module, name } => {
+            module.as_deref().is_some_and(str_hit) || str_hit(name)
+        }
+        _ => false,
     }
 }

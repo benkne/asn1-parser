@@ -238,7 +238,7 @@ fn is_list_item_start(line: &str) -> bool {
 // HTML rendering
 // ---------------------------------------------------------------------------
 
-pub(crate) fn render_html(out: &mut String, doc: &str) {
+pub(crate) fn render_html(out: &mut String, doc: &str, required_fields: &[&str]) {
     let block = parse(doc);
     if block.is_empty() {
         return;
@@ -252,7 +252,13 @@ pub(crate) fn render_html(out: &mut String, doc: &str) {
     if !block.fields.is_empty() {
         out.push_str("<dl class=\"doc-fields\">\n");
         for (name, body) in &block.fields {
-            let _ = writeln!(out, "<dt>{}</dt><dd>{}</dd>", html_escape(name), inline_html(body),);
+            let cls = if required_fields.iter().any(|n| *n == name) { "req" } else { "opt" };
+            let _ = writeln!(
+                out,
+                "<dt class=\"{cls}\">{}</dt><dd>{}</dd>",
+                html_escape(name),
+                inline_html(body),
+            );
         }
         out.push_str("</dl>\n");
     }
@@ -347,12 +353,22 @@ fn is_ref_terminator(c: char) -> bool {
 /// Render a parsed doc block into the supplied `egui::Ui`. `id_seed` keeps the
 /// internal `Grid` id unique within the parent scope when several doc blocks
 /// are rendered side-by-side (e.g. a field's own doc plus its referent's doc).
-pub(crate) fn render_egui(ui: &mut egui::Ui, doc: &str, id_seed: &str) {
+pub(crate) fn render_egui(
+    ui: &mut egui::Ui,
+    doc: &str,
+    id_seed: &str,
+    required_fields: &[&str],
+) {
     let block = parse(doc);
     if block.is_empty() {
         return;
     }
     let accent = ui.visuals().hyperlink_color;
+    // Required keeps the full accent (rendered bold below). Optional mixes
+    // 25% accent with 75% weak-text so it reads as the same hue but heavily
+    // faded — mirrors the HTML export's req/opt contrast and inverts
+    // automatically across themes because weak_text_color is bg-relative.
+    let opt_color = lerp_color(accent, ui.visuals().weak_text_color(), 0.75);
 
     for para in &block.intro {
         // Italics alone differentiate intro prose from labels; muting the
@@ -367,7 +383,14 @@ pub(crate) fn render_egui(ui: &mut egui::Ui, doc: &str, id_seed: &str) {
             .striped(false)
             .show(ui, |ui| {
                 for (name, body) in &block.fields {
-                    ui.label(egui::RichText::new(name).monospace().color(accent));
+                    let required = required_fields.iter().any(|n| *n == name);
+                    let mut text = egui::RichText::new(name).monospace();
+                    text = if required {
+                        text.color(accent).strong()
+                    } else {
+                        text.color(opt_color)
+                    };
+                    ui.label(text);
                     ui.label(transform_refs_plain(body));
                     ui.end_row();
                 }
@@ -388,6 +411,16 @@ pub(crate) fn render_egui(ui: &mut egui::Ui, doc: &str, id_seed: &str) {
             ui.label(transform_refs_plain(body));
         });
     }
+}
+
+fn lerp_color(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let inv = 1.0 - t;
+    egui::Color32::from_rgb(
+        (a.r() as f32 * inv + b.r() as f32 * t) as u8,
+        (a.g() as f32 * inv + b.g() as f32 * t) as u8,
+        (a.b() as f32 * inv + b.b() as f32 * t) as u8,
+    )
 }
 
 fn chip(ui: &mut egui::Ui, label: &str, body: &str, accent: egui::Color32) {
@@ -582,11 +615,12 @@ mod tests {
         render_html(
             &mut out,
             "intro paragraph.\n@field id: the id.\n@category: Topology\n@revision: V2.2.1",
+            &["id"],
         );
         assert!(out.contains(r#"class="doc""#));
         assert!(out.contains(r#"class="doc-text""#));
         assert!(out.contains(r#"class="doc-fields""#));
-        assert!(out.contains("<dt>id</dt>"));
+        assert!(out.contains(r#"<dt class="req">id</dt>"#));
         assert!(out.contains(r#"class="doc-chips""#));
         assert!(out.contains(r#"class="doc-chip doc-chip-category""#));
         assert!(out.contains(r#"class="doc-chip doc-chip-revision""#));
@@ -622,7 +656,7 @@ mod tests {
     #[test]
     fn render_html_skips_wrapper_when_doc_is_empty() {
         let mut out = String::new();
-        render_html(&mut out, "");
+        render_html(&mut out, "", &[]);
         assert!(out.is_empty());
     }
 }
