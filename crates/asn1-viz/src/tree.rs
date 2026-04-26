@@ -47,9 +47,7 @@ pub(crate) fn required_field_names(ty: &IrType) -> Vec<&str> {
             .members
             .iter()
             .filter_map(|m| match m {
-                IrStructMember::Field(f)
-                    if matches!(f.optionality, IrOptionality::Required) =>
-                {
+                IrStructMember::Field(f) if matches!(f.optionality, IrOptionality::Required) => {
                     Some(f.name.as_str())
                 }
                 _ => None,
@@ -270,12 +268,7 @@ fn render_nested(
             let id = node_id(visited, path, label);
             egui::CollapsingHeader::new(label).id_source(&id).default_open(false).show(ui, |ui| {
                 if let Some(doc) = field_doc {
-                    docfmt::render_egui(
-                        ui,
-                        doc,
-                        &format!("field-{id}"),
-                        &required_field_names(ty),
-                    );
+                    docfmt::render_egui(ui, doc, &format!("field-{id}"), &required_field_names(ty));
                     ui.add_space(2.0);
                 }
                 render_body(ui, program, current_mod, path, ty, visited);

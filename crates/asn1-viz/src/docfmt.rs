@@ -353,12 +353,7 @@ fn is_ref_terminator(c: char) -> bool {
 /// Render a parsed doc block into the supplied `egui::Ui`. `id_seed` keeps the
 /// internal `Grid` id unique within the parent scope when several doc blocks
 /// are rendered side-by-side (e.g. a field's own doc plus its referent's doc).
-pub(crate) fn render_egui(
-    ui: &mut egui::Ui,
-    doc: &str,
-    id_seed: &str,
-    required_fields: &[&str],
-) {
+pub(crate) fn render_egui(ui: &mut egui::Ui, doc: &str, id_seed: &str, required_fields: &[&str]) {
     let block = parse(doc);
     if block.is_empty() {
         return;
@@ -385,11 +380,8 @@ pub(crate) fn render_egui(
                 for (name, body) in &block.fields {
                     let required = required_fields.iter().any(|n| *n == name);
                     let mut text = egui::RichText::new(name).monospace();
-                    text = if required {
-                        text.color(accent).strong()
-                    } else {
-                        text.color(opt_color)
-                    };
+                    text =
+                        if required { text.color(accent).strong() } else { text.color(opt_color) };
                     ui.label(text);
                     ui.label(transform_refs_plain(body));
                     ui.end_row();

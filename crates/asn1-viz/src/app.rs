@@ -44,7 +44,7 @@ pub fn launch(initial_paths: Vec<PathBuf>) -> eframe::Result<()> {
 pub fn launch_with_options(initial_paths: Vec<PathBuf>, opts: LaunchOptions) -> eframe::Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([1200.0, 780.0])
-        .with_title("asn1-tool — visualizer")
+        .with_title("asn1-tool")
         .with_app_id("asn1-tool");
     let icon = opts.icon.or_else(default_icon);
     if let Some(icon) = icon {
@@ -614,22 +614,19 @@ impl eframe::App for VizApp {
                     .inner_margin(egui::Margin::symmetric(4.0, 2.0))
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
-                        ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui| {
-                                let btn = ui.add_enabled(
-                                    !self.filter.is_empty(),
-                                    egui::Button::new("✕").frame(false),
-                                );
-                                if btn.clicked() {
-                                    self.filter.clear();
-                                }
-                                ui.add_sized(
-                                    [ui.available_width(), ui.spacing().interact_size.y],
-                                    egui::TextEdit::singleline(&mut self.filter).frame(false),
-                                );
-                            },
-                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let btn = ui.add_enabled(
+                                !self.filter.is_empty(),
+                                egui::Button::new("✕").frame(false),
+                            );
+                            if btn.clicked() {
+                                self.filter.clear();
+                            }
+                            ui.add_sized(
+                                [ui.available_width(), ui.spacing().interact_size.y],
+                                egui::TextEdit::singleline(&mut self.filter).frame(false),
+                            );
+                        });
                     });
             });
             ui.checkbox(&mut self.filter_in_body, "search all");
@@ -682,9 +679,7 @@ impl VizApp {
                             return true;
                         }
                         if in_body {
-                            if t.doc
-                                .as_deref()
-                                .is_some_and(|d| d.to_lowercase().contains(&filter))
+                            if t.doc.as_deref().is_some_and(|d| d.to_lowercase().contains(&filter))
                             {
                                 return true;
                             }
@@ -825,9 +820,10 @@ fn type_body_contains(ty: &IrType, needle: &str) -> bool {
             }
             IrStructMember::ComponentsOf { type_ref } => str_hit(type_ref),
         }),
-        IrType::Choice(c) => c.alternatives.iter().any(|f| {
-            str_hit(&f.name) || opt_hit(&f.doc) || type_body_contains(&f.ty, needle)
-        }),
+        IrType::Choice(c) => c
+            .alternatives
+            .iter()
+            .any(|f| str_hit(&f.name) || opt_hit(&f.doc) || type_body_contains(&f.ty, needle)),
         IrType::Enumerated { items, .. } => {
             items.iter().any(|i| str_hit(&i.name) || opt_hit(&i.doc))
         }
