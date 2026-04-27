@@ -721,11 +721,18 @@ impl Parser {
             }
             let v = match &self.peek().kind {
                 TokKind::Number(n) => {
-                    let v = n
-                        .parse::<i64>()
-                        .map_err(|_| ParseError::new("bad enum value", self.peek().span))?;
+                    let span = self.peek().span;
+                    let v = if negative {
+                        // Try parsing with a leading minus sign to handle i64::MIN correctly.
+                        format!("-{}", n)
+                            .parse::<i64>()
+                            .map_err(|_| ParseError::new("bad enum value", span))?
+                    } else {
+                        n.parse::<i64>()
+                            .map_err(|_| ParseError::new("bad enum value", span))?
+                    };
                     self.bump();
-                    Some(if negative { -v } else { v })
+                    Some(v)
                 }
                 TokKind::Ident(_) => {
                     // enumerated value can be a reference; we flatten to None and let the IR resolve.
@@ -1196,11 +1203,24 @@ impl Parser {
                 }
                 match &self.peek().kind {
                     TokKind::Number(n) => {
-                        let v = n.parse::<i64>().map_err(|_| {
-                            ParseError::new("bad integer literal", self.peek().span)
-                        })?;
+                        let span = self.peek().span;
+                        // When parsing a negative number, try to parse as a signed i64 first.
+                        // This handles the special case where -n fits in i64 but n (as unsigned)
+                        // is larger than i64::MAX, e.g., -(2^63) = -9223372036854775808.
+                        let v = if negative {
+                            // Try parsing with a leading minus sign.
+                            format!("-{}", n)
+                                .parse::<i64>()
+                                .map_err(|_| {
+                                    ParseError::new("bad integer literal", span)
+                                })?
+                        } else {
+                            n.parse::<i64>().map_err(|_| {
+                                ParseError::new("bad integer literal", span)
+                            })?
+                        };
                         self.bump();
-                        Ok(Value::Integer(if negative { -v } else { v }))
+                        Ok(Value::Integer(v))
                     }
                     TokKind::Real(r) => {
                         let v: f64 = r
